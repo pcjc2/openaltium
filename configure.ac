@@ -4,7 +4,7 @@
 
 AC_PREREQ([2.67])
 AC_INIT([openaltium], [0.0.1], [pcjc2@cam.ac.uk])
-AC_CONFIG_SRCDIR([libopenaltium/read_data.c])
+AC_CONFIG_SRCDIR([libopenaltium/pcblib.c])
 AC_CONFIG_AUX_DIR([build-tools])
 AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_HEADERS([config.h])
@@ -26,6 +26,8 @@ PKG_PROG_PKG_CONFIG
 
 PKG_CHECK_MODULES(GLIB, [glib-2.0 >= 2.12.0], ,
   AC_MSG_ERROR([GLib 2.12.0 or later is required.]))
+PKG_CHECK_MODULES(GSF, [libgsf-1 >= 1.14.19], ,
+  AC_MSG_ERROR([libgsf 1.14.19 or later is required (earlier might work if you edit configure.ac)]))
 
 # Checks for libraries
 
