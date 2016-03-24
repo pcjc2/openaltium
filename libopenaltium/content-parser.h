@@ -26,7 +26,7 @@ typedef struct {
 int content_check_available (file_content *content, unsigned int length);
 int content_get_uint32 (file_content *content, uint32_t *data);
 int content_get_int32 (file_content *content, int32_t *data);
-//int content_get_uint16 (file_content *content, uint32_t *data);
+int content_get_uint16 (file_content *content, uint16_t *data);
 int content_get_byte (file_content *content, uint8_t *data);
 int content_get_double (file_content *content, double *data);
 

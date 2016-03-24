@@ -19,6 +19,7 @@
 
 #include <stdint.h>
 #include <glib.h>
+#include <stdio.h>
 
 #include "content-parser.h"
 
@@ -75,7 +76,11 @@ content_get_n_wchars (file_content *content, unsigned int n_chars)
 int
 content_skip_bytes (file_content *content, unsigned int n_bytes)
 {
+  int i;
   g_return_val_if_fail (content_check_available (content, n_bytes), 0);
+  for (i = 0; i < n_bytes; i++) {
+    printf ("Skipped byte %i\n", content->data[content->cursor + i]);
+  }
   content->cursor += n_bytes;
   return 1;
 }
@@ -92,11 +97,25 @@ content_get_length_multi_prefixed_string (file_content *content)
   if (!content_get_uint32 (content, &txt_block_length))
     return NULL;
 
+#if 0
+  if (txt_block_length == 0) {
+    printf ("0 LEN TXT!!!!\n");
+    return NULL; //g_strdup(""); /* empty string? */
+  }
+#endif
+
   if (!content_get_byte (content, &txt_length))
     return NULL;
 
-  if (txt_block_length != 1 + txt_length) exit (-1);
-  g_return_val_if_fail (txt_block_length == 1 + txt_length, NULL);
+  fflush (stdout);
+  if (txt_block_length != 1 + txt_length) //exit (-1);
+    g_warning ("txt_block_length = %i\n, 1 + txt_length = %i\n", txt_block_length, 1 + txt_length);
+
+  if (txt_block_length == 0 && txt_length == 0)
+    return g_strdup(""); /* empty string? */
+
+  //g_return_val_if_fail (txt_block_length == 1 + txt_length, NULL);
+//REINSTATE!  g_assert (txt_block_length == 1 + txt_length);
 
   string = content_get_n_chars (content, txt_length);
   return string;

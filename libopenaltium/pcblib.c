@@ -31,10 +31,27 @@
 #include "content-parser.h"
 #include "pcblib-data.h"
 
+
+/* XXX: DUPLICATE FROM pcblib-data.c */
+static void
+fprint_coord (FILE *file, int32_t coord)
+{
+//  fprintf (file, "%.2fmm", (double)coord / 1000000. * 2.54);
+  fprintf (file, "%.2fmil", (double)coord / 10000.);
+}
+
+/* XXX: DUPLICATE FROM pcblib-data.c */
+static void
+print_coord (int32_t coord)
+{
+  fprint_coord (stdout, coord);
+}
+
+
 static int
 check_gerror (GError *error) {
   if (error != NULL) {
-    fprintf (stderr, "Error: %s\n", error->message);
+    fprintf (stdout, "Error: %s\n", error->message);
     g_error_free (error);
     return 0;
   }
@@ -53,7 +70,7 @@ input_to_content (GsfInput *input)
   content->length = gsf_input_size (input);
   content->data = (char *)gsf_input_read (input, content->length, NULL);
   if (content->data == NULL) {
-    fprintf (stderr, "Read error grabbing data\n");
+    fprintf (stdout, "Read error grabbing data\n");
     g_free (content);
     return NULL;
   }
@@ -73,7 +90,7 @@ parse_header (GsfInput *header)
   uint32_t data;
 
   if (!content_get_uint32 (content, &data)) {
-    fprintf (stderr, "Error reading size from header\n");
+    fprintf (stdout, "Error reading size from header\n");
     exit (EXIT_FAILURE);
   }
 
@@ -82,17 +99,17 @@ parse_header (GsfInput *header)
 }
 
 static void
-parse_footprint_resource_data (GsfInput *input, int expected_sections)
+parse_footprint_resource_data (FILE *file, GsfInput *input, int expected_sections)
 {
   file_content *content = input_to_content (input);
   /* DEBUG */
   g_file_set_contents ("Data.debug", content->data, content->length, NULL);
-  decode_data (content, expected_sections);
+  decode_data (file, content, expected_sections);
   free_content (content);
 }
 
 static void
-parse_footprint_resource (GsfInfile *infile)
+parse_footprint_resource (FILE *file, GsfInfile *infile)
 {
   GsfInput *header;
   GsfInput *data;
@@ -101,7 +118,7 @@ parse_footprint_resource (GsfInfile *infile)
 
   header = gsf_infile_child_by_name (infile, "Header");
   if (header == NULL) {
-    fprintf (stderr, "Error: Couldn't open 'Header' file\n");
+    fprintf (stdout, "Error: Couldn't open 'Header' file\n");
     return;
   }
   record_count = parse_header (header);
@@ -111,10 +128,10 @@ parse_footprint_resource (GsfInfile *infile)
 
   data = gsf_infile_child_by_name (infile, "Data");
   if (data == NULL) {
-    fprintf (stderr, "Error: Couldn't open 'Data' file\n");
+    fprintf (stdout, "Error: Couldn't open 'Data' file\n");
     return;
   }
-  parse_footprint_resource_data (data, record_count);
+  parse_footprint_resource_data (file, data, record_count);
   g_object_unref (data);
 }
 
@@ -134,16 +151,19 @@ parse_library_resource_data (GsfInput *data)
   char *parameters;
   uint32_t num_footprints;
   int i;
+  char *outname;
+  FILE *outfile;
+  int32_t origin_x, origin_y;
 
   parameters = content_get_length_dword_prefixed_string (content);
   if (parameters == NULL) {
-    fprintf (stderr, "Error getting parameters\n");
+    fprintf (stdout, "Error getting parameters\n");
     exit (EXIT_FAILURE);
   }
   printf ("Parameters: '%s'\n", parameters);
 
   if (!content_get_uint32 (content, &num_footprints)) {
-    fprintf (stderr, "Error getting num_footprints\n");
+    fprintf (stdout, "Error getting num_footprints\n");
     exit (EXIT_FAILURE);
   }
 
@@ -154,14 +174,32 @@ parse_library_resource_data (GsfInput *data)
     GsfInfile *footprint;
     footprint_name = content_get_length_multi_prefixed_string (content);
     if (footprint_name == NULL) {
-      fprintf (stderr, "Error getting footprint name\n");
+      fprintf (stdout, "Error getting footprint name\n");
       exit (EXIT_FAILURE);
     }
     printf ("Footprint %i: '%s'\n", i + 1, footprint_name);
     resource_name = footprint_name_to_resource_name (footprint_name);
     root = gsf_input_container (GSF_INPUT (gsf_input_container (data)));
     footprint = GSF_INFILE (gsf_infile_child_by_name (root, resource_name));
-    parse_footprint_resource (footprint);
+    origin_x = 0;
+    origin_y = 0;
+
+    outname = g_strdup_printf ("%s.fp", resource_name);
+    outfile = fopen (outname, "w");
+    if (outfile == NULL) {
+      fprintf (stdout, "Error opening output file %s\n", outname);
+      exit (EXIT_FAILURE);
+    }
+    g_free (outname);
+
+    fprintf (outfile, "Element[\"\" \"\" \"\" \"\" ");
+    fprint_coord (outfile, origin_x); fprintf (outfile, " ");
+    fprint_coord (outfile, origin_y); fprintf (outfile, " ");
+    fprintf (outfile, "0.0 0.0 0 100 \"\"]\n");
+    fprintf (outfile, "(\n");
+    parse_footprint_resource (outfile, footprint);
+    fprintf (outfile, ")\n");
+    fclose (outfile);
     g_object_unref (footprint);
     g_free (footprint_name);
     g_free (resource_name);
@@ -185,13 +223,13 @@ parse_library_resource (GsfInfile *root)
   /* XXX: Should we be passed the "Library" dir directly? */
   infile = GSF_INFILE (gsf_infile_child_by_name (root, "Library"));
   if (infile == NULL) {
-    fprintf (stderr, "Error: Couldn't open Library dir\n");
+    fprintf (stdout, "Error: Couldn't open Library dir\n");
     return;
   }
 
   header = gsf_infile_child_by_name (infile, "Header");
   if (header == NULL) {
-    fprintf (stderr, "Error: Couldn't open Library/Header file\n");
+    fprintf (stdout, "Error: Couldn't open Library/Header file\n");
     return;
   }
   record_count = parse_header (header);
@@ -200,7 +238,7 @@ parse_library_resource (GsfInfile *root)
 
   data = gsf_infile_child_by_name (infile, "Data");
   if (data == NULL) {
-    fprintf (stderr, "Error: Couldn't open Library/Header file\n");
+    fprintf (stdout, "Error: Couldn't open Library/Header file\n");
     return;
   }
   parse_library_resource_data (data);
@@ -221,11 +259,11 @@ parse_root (GsfInfile *infile)
     gboolean is_dir = (child_infile != NULL) &&
                       gsf_infile_num_children (child_infile) > 0;
     if (is_dir) {
-      printf ("Decending into dir '%s'\n", name);
+//      printf ("Decending into dir '%s'\n", name);
       parse_root (child_infile);
-      printf ("Done with dir '%s'\n", name);
-    } else {
-      printf ("Child file '%s'\n", name);
+//      printf ("Done with dir '%s'\n", name);
+//    } else {
+//      printf ("Child file '%s'\n", name);
     }
   }
 }
@@ -256,8 +294,8 @@ parse_file (char *filename)
 static void
 print_usage (char *program)
 {
-  fprintf (stderr, "Usage: %s [OPTIONS] -f [datafile]\n", program);
-  fprintf (stderr, "OPTIONS: -h, --help   Display usage\n");
+  fprintf (stdout, "Usage: %s [OPTIONS] -f [datafile]\n", program);
+  fprintf (stdout, "OPTIONS: -h, --help   Display usage\n");
 }
 
 int
@@ -302,11 +340,11 @@ main (int argc, char **argv)
   }
 
   if (filename == NULL) {
-    fprintf (stderr, "No filename specified\n");
+    fprintf (stdout, "No filename specified\n");
     print_usage (argv[0]);
     exit (EXIT_FAILURE);
   } else {
-    fprintf (stderr, "Loading from file '%s'\n", filename);
+    fprintf (stdout, "Loading from file '%s'\n", filename);
   }
 
   parse_file (filename);

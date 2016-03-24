@@ -18,4 +18,4 @@
  */
 
 
-void decode_data (file_content *content, int expected_sections);
+void decode_data (FILE *file, file_content *content, int expected_sections);
