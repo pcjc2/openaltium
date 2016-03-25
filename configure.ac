@@ -26,6 +26,8 @@ PKG_PROG_PKG_CONFIG
 
 PKG_CHECK_MODULES(GLIB, [glib-2.0 >= 2.12.0], ,
   AC_MSG_ERROR([GLib 2.12.0 or later is required.]))
+PKG_CHECK_MODULES(GIO, [gio-2.0 >= 2.46.1], ,
+  AC_MSG_ERROR([libgio 2.46.1 or later is required (earlier might work if you edit configure.ac)]))
 PKG_CHECK_MODULES(GSF, [libgsf-1 >= 1.14.19], ,
   AC_MSG_ERROR([libgsf 1.14.19 or later is required (earlier might work if you edit configure.ac)]))
 

@@ -1,6 +1,6 @@
 /*
  *  openaltium is a set of tools for opening Altium (TM) library files
- *  Copyright (C) 2011  Peter Clifton <pcjc2@cam.ac.uk>
+ *  Copyright (C) 2016  Peter Clifton <Peter.Clifton@clifton-electronics.co.uk>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -17,5 +17,13 @@
  *  51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
+typedef struct parameter_list parameter_list;
 
-void decode_data (FILE *file, file_content *content, int expected_sections, model_map *map);
+parameter_list *parameter_list_new_from_string (const char *string);
+void parameter_list_free (parameter_list *list);
+int32_t parameter_list_get_dimension (const parameter_list *list, const char *name);
+double parameter_list_get_double (const parameter_list *list, const char *name);
+unsigned int parameter_list_get_unsigned_int (const parameter_list *list, const char *name);
+int parameter_list_get_int (const parameter_list *list, const char *name);
+bool parameter_list_get_bool (const parameter_list *list, const char *name);
+char *parameter_list_get_string (const parameter_list *list, const char *name);

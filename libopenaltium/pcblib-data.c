@@ -22,8 +22,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <glib.h>
+#include <math.h>
 
 #include "content-parser.h"
+#include "parameters.h"
+#include "models.h"
 
 
 static void
@@ -429,6 +432,7 @@ decode_record_3 (FILE *file, file_content *content)
 static int
 decode_silkline (FILE *file, file_content *content)
 {
+  uint32_t first_dw;
   uint8_t first_byte;
   uint8_t byte;
   uint16_t w1, w2, w3;
@@ -437,13 +441,25 @@ decode_silkline (FILE *file, file_content *content)
 
   printf ("Decoding silkline\n");
 
+#if 0
   if (!content_get_byte (content, &first_byte)) return 0;
   printf ("  BYTE %i", first_byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   if (!content_get_uint16 (content, &w2)) return 0;
   if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i", w1, w2, w3);
+  printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
+#endif
+
+
+  if (!content_get_uint32 (content, &first_dw)) return 0; /* Some kind of size? */
+  printf ("  DWORD %i\n", first_dw);
+
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
+
+  if (!content_get_uint16 (content, &w1)) return 0;
+  printf ("  WORD %i\n", w1);
 
   content_skip_bytes (content, 10);
   printf ("  Skipped 10 bytes\n");
@@ -465,11 +481,11 @@ decode_silkline (FILE *file, file_content *content)
   printf ("  DWORD %i, %i\n", dw1, dw2);
 
 #ifndef NO_EXTRA_SILKLINE_DWORD
-  if (first_byte == 45) {
+  if (first_dw == 45) {
     if (!content_get_uint32 (content, &dw1)) return 0;
     printf ("  DWORD %i\n", dw1);
   } else {
-    g_assert (first_byte == 41);
+    g_assert (first_dw == 41);
   }
 #endif
 
@@ -486,9 +502,11 @@ decode_silkline (FILE *file, file_content *content)
 static int
 decode_text_record (FILE *file, file_content *content)
 {
+  uint32_t first_dw;
   uint8_t byte;
   uint16_t w1, w2, w3;
   int32_t x, y, height;
+  double angle;
   uint32_t dw1, dw2, dw3, dw4, dw5;
   char *text;
   char *font;
@@ -496,6 +514,7 @@ decode_text_record (FILE *file, file_content *content)
 
   printf ("Decoding text record\n");
 
+#if 0
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
@@ -503,8 +522,18 @@ decode_text_record (FILE *file, file_content *content)
   if (!content_get_uint16 (content, &w2)) return 0;
   if (!content_get_uint16 (content, &w3)) return 0;
   printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
+#endif
 
-  if (byte == 0x20) {
+  if (!content_get_uint32 (content, &first_dw)) return 0; /* Some kind of size? */
+  printf ("  DWORD %i\n", first_dw);
+
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
+
+  if (!content_get_uint16 (content, &w1)) return 0;
+  printf ("  WORD %i\n", w1);
+
+  if (first_dw == 0x20) {
     kludge_mode = true;
 //    content_skip_bytes (content, 29);
 //    return 1;
@@ -525,13 +554,26 @@ decode_text_record (FILE *file, file_content *content)
   if (!content_get_int32 (content, &x)) return 0;
   if (!content_get_int32 (content, &y)) return 0;
   if (!content_get_int32 (content, &height)) return 0;
+
+#if POSSIBLE_NEW_FORMAT
+  if (!content_get_uint16 (content, &w1)) return 0;
+  if (!content_get_double (content, &angle)) return 0;
+#endif
+
   printf ("  Text position (");
   print_coord (x); printf (", ");
   print_coord (y); printf (") Height: ");
   print_coord (height); printf ("\n");
+  printf ("  Rotation angle %f\n", angle);
 
   if (!content_get_uint32 (content, &dw1)) return 0;
   if (!content_get_uint32 (content, &dw2)) return 0;
+
+#if POSSIBLE_NEW_FORMAT
+  if (!content_get_uint16 (content, &w2)) return 0;
+#endif
+
+#ifndef POSSIBLE_NEW_FORMAT
   if (kludge_mode)
     {
       printf ("NASTY KLUDGE: Dummy bytes dw3, dw4, dw5\n");
@@ -544,8 +586,11 @@ decode_text_record (FILE *file, file_content *content)
       if (!content_get_uint32 (content, &dw5)) return 0;
     }
   printf ("  DWORDS %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5);
+#endif
 
-  if (byte != 0x20)
+  printf (" WORD %i, DOUBLE (angle %f), DWORDS %i, %i, WORD %i\n", w1, angle, dw1, dw2, w2);
+
+  if (first_dw != 0x20)
     {
       if (!content_get_byte (content, &byte)) return 0;
       printf ("  BYTE %i\n", byte);
@@ -705,15 +750,22 @@ decode_polygon_record (FILE *file, file_content *content)
 }
 
 static int
-decode_model_record (FILE *file, file_content *content)
+decode_model_record (FILE *file, file_content *content, model_map *map)
 {
   uint8_t byte;
   uint32_t record_length;
   uint16_t w1, w2, w3;
   int32_t something;
-  char *attributes;
+  char *parameter_string;
+  parameter_list *parameter_list;
   uint32_t count;
   int i;
+  char *model_id;
+  model_info *info;
+  double ox, oy, oz;
+  double ax, ay, az;
+  double rx, ry, rz;
+  double tx, ty, tz;
 
   printf ("Decoding model record\n");
 
@@ -736,11 +788,13 @@ decode_model_record (FILE *file, file_content *content)
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i", byte);
 
-  attributes = content_get_length_dword_prefixed_string (content);
-  if (attributes == NULL)
+  parameter_string = content_get_length_dword_prefixed_string (content);
+  if (parameter_string == NULL)
     return 0;
-  printf ("  Model attributes: %s\n", attributes);
-  g_free (attributes);
+  printf ("  Model parameter string: %s\n", parameter_string);
+
+  parameter_list = parameter_list_new_from_string (parameter_string);
+  g_free (parameter_string);
 
   if (!content_get_uint32 (content, &count)) return 0;
 
@@ -756,6 +810,102 @@ decode_model_record (FILE *file, file_content *content)
       printf ("-");
   }
   printf ("\n");
+
+  model_id = parameter_list_get_string (parameter_list, "MODELID");
+  info = model_map_find_by_id (map, model_id);
+  g_free (model_id);
+
+  if (info == NULL) {
+    printf ("XXX: DID NOT FIND MODEL ASSOCIATED WITH THIS MODELID\n");
+    return 0;
+  }
+
+  /* XXX: Lookup filename from modelid */
+
+  ox = oy = oz = 0.0;
+  ax = ay = 0.0; az = 1.0;
+  rx = 1.0; ry = rz = 0.0;
+
+  ox = -info->dx / 10000.;
+  oy = -info->dy / 10000.;
+  oz = -info->dz / 10000.;
+
+  printf ("Initial transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
+
+  printf ("rotx = %f\n", info->rotx);
+
+#if 0
+  tx = ox;
+  ty = (oy *  cos (info->rotx * M_PI / 180.) + oz * sin (info->rotx * M_PI / 180.));
+  tz = (oy * -sin (info->rotx * M_PI / 180.) + oz * cos (info->rotx * M_PI / 180.));
+
+  ox = tx;
+  oy = ty;
+  oz = tz;
+#endif
+
+#if 1
+  ty = (ay *  cos (info->rotx * M_PI / 180.) + az * sin (info->rotx * M_PI / 180.));
+  tz = (ay * -sin (info->rotx * M_PI / 180.) + az * cos (info->rotx * M_PI / 180.));
+  ay = ty;
+  az = tz;
+
+  ty = (ry *  cos (info->rotx * M_PI / 180.) + rz * sin (info->rotx * M_PI / 180.));
+  tz = (ry * -sin (info->rotx * M_PI / 180.) + rz * cos (info->rotx * M_PI / 180.));
+  ry = ty;
+  rz = tz;
+#endif
+
+#if 1
+  tz = (az *  cos (info->roty * M_PI / 180.) + ax * sin (info->roty * M_PI / 180.));
+  tx = (az * -sin (info->roty * M_PI / 180.) + ax * cos (info->roty * M_PI / 180.));
+  az = tz;
+  ax = tx;
+
+  tz = (rz *  cos (info->roty * M_PI / 180.) + rx * sin (info->roty * M_PI / 180.));
+  tx = (rz * -sin (info->roty * M_PI / 180.) + rx * cos (info->roty * M_PI / 180.));
+  rz = tz;
+  rx = tx;
+#endif
+
+#if 1
+  tx = (ax *  cos (info->rotz * M_PI / 180.) + ay * sin (info->rotz * M_PI / 180.));
+  ty = (ax * -sin (info->rotz * M_PI / 180.) + ay * cos (info->rotz * M_PI / 180.));
+  ax = tx;
+  ay = ty;
+
+  tx = (rx *  cos (info->rotz * M_PI / 180.) + ry * sin (info->rotz * M_PI / 180.));
+  ty = (rx * -sin (info->rotz * M_PI / 180.) + ry * cos (info->rotz * M_PI / 180.));
+  rx = tx;
+  ry = ty;
+#endif
+  printf ("Rotated transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
+
+  ox -= parameter_list_get_double (parameter_list, "MODEL.2D.X");
+  oy -= parameter_list_get_double (parameter_list, "MODEL.2D.Y");
+//  oz -= parameter_list_get_double (parameter_list, "MODEL.2D.Z");
+
+  /* XXX: 2D rotation??? */
+
+  printf ("2D translated transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
+
+  fprintf (file, "\tAttribute(\"PCB::3d_model::type\" \"%s\")\n", "STEP-AP214"); /* XXX: ASSUMED, BUT MAY NOT BE! */
+  fprintf (file, "\tAttribute(\"PCB::3d_model::filename\" \"%s/%s\")\n", g_get_current_dir(), info->filename); /* XXX: NEED TO FIX PCB SEARCH PATHS!!! */
+  fprintf (file, "\tAttribute(\"PCB::3d_model::origin\" \"%f mil %f mil %f mil\")\n", ox, oy, oz);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::origin::X\" \"%f mil\")\n", ox);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::origin::Y\" \"%f mil\")\n", oy);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::origin::Z\" \"%f mil\")\n", oz);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::axis\" \"%f %f %f\")\n", ax, ay, az);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::axis::X\" \"%f\")\n", ax);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::axis::Y\" \"%f\")\n", ay);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::axis::Z\" \"%f\")\n", az);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::ref_dir\" \"%f %f %f\")\n", rx, ry, rz);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::ref_dir::X\" \"%f\")\n", rx);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::ref_dir::Y\" \"%f\")\n", ry);
+  fprintf (file, "\tAttribute(\"PCB::3d_model::ref_dir::Z\" \"%f\")\n", rz);
+  fprintf (file, "\tAttribute(\"PCB::rotation\" \"0 degrees\")\n");
+
+  parameter_list_free (parameter_list);
 
   return 1;
 }
@@ -787,6 +937,7 @@ decode_pin_record (FILE *file, file_content *content)
   uint16_t w1, w2;
   uint16_t type_word;
   int32_t x, y, c1, c2, c3, c4, c5, c6, c7;
+  double angle;
   uint8_t style1, style2, style3;
   int32_t pad, clear, mask, drill;
   uint32_t dw1, dw2, dw3, dw4, dw5;
@@ -855,12 +1006,13 @@ decode_pin_record (FILE *file, file_content *content)
   if (!content_get_byte (content, &style3)) return 0;
   printf ("  BYTES %i %i %i (Pad shape styles?)\n", style1, style2, style3);
 
+  if (!content_get_double (content, &angle)) return 0;
+  printf ("  Rotation angle %f\n", angle);
+
   if (!content_get_uint32 (content, &dw1)) return 0;
   if (!content_get_uint32 (content, &dw2)) return 0;
   if (!content_get_uint32 (content, &dw3)) return 0;
-  if (!content_get_uint32 (content, &dw4)) return 0;
-  if (!content_get_uint32 (content, &dw5)) return 0;
-  printf ("  DWORDS %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5);
+  printf ("  DWORDS %i, %i, %i\n", dw1, dw2, dw3);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -933,6 +1085,13 @@ decode_pin_record (FILE *file, file_content *content)
     mask = c5;       /* GUESS */
     drill = c7;      /* GUESS */
 
+    if (drill >= pad) /* Encountered some files with zero size pads to represent drills */
+      pin_is_hole = true;
+
+    if (pin_is_hole && /* XXX: Expand mask size to match drilled hole - more realistic export for holes.. but don't bodge tented vias! */
+        drill > mask)
+      mask = drill;
+
     fprintf (file, "\tPin[");
     fprint_coord (file, x);     fprintf (file, " ");
     fprint_coord (file, -y);     fprintf (file, " ");
@@ -943,30 +1102,39 @@ decode_pin_record (FILE *file, file_content *content)
     fprintf (file, "\"\" \"%s\" \"%s\"]\n", name, pin_is_hole ? "hole" : (pin_is_round ? "" : "square"));
   } else {
     int32_t x1, y1, x2, y2;
+    int32_t w, h;
+    int32_t tx, ty;
 
     printf ("XXX: Assuming \"pin\" is a rectangular pad?\n");
-    printf ("XXX: Assuming the pad is at zero angle!!!\n");
 
     if (c1 > c2)
       {
-        x1 = x - (c1 - c2) / 2;
-        x2 = x + (c1 - c2) / 2;
-        y1 = y;
-        y2 = y;
+        w = (c2 - c1) / 2;
+        h = 0;
         pad = c2;
         clear = c4 - c2; /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
         mask = c6;       /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
       }
     else
       {
-        x1 = x;
-        x2 = x;
-        y1 = y - (c2 - c1) / 2;
-        y2 = y + (c2 - c1) / 2;
+        w = 0;
+        h = (c1 - c2) / 2;
         pad = c1;
         clear = c3 - c1; /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
-        mask = c5 ;      /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
+        mask = c5;       /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
       }
+
+    tx = w *  cos (angle * M_PI / 180.) + h * sin (angle * M_PI / 180.);
+    ty = w * -sin (angle * M_PI / 180.) + h * cos (angle * M_PI / 180.);
+
+    x1 = x + tx;
+    y1 = y + ty;
+    x2 = x - tx;
+    y2 = y - ty;
+
+    /* XXX: If the pad is square, PCB can't represent its rotation! */
+    if (!pin_is_round)
+      printf ("XXX: Assuming the pad is at zero angle!!!\n");
 
     fprintf (file, "\tPad[");
     fprint_coord (file, x1);     fprintf (file, " ");
@@ -985,7 +1153,7 @@ decode_pin_record (FILE *file, file_content *content)
 }
 
 void
-decode_data (FILE *file, file_content *content, int expected_sections)
+decode_data (FILE *file, file_content *content, int expected_sections, model_map *map)
 {
   uint8_t byte;
   uint32_t length;
@@ -997,7 +1165,7 @@ decode_data (FILE *file, file_content *content, int expected_sections)
   if (!decode_name (file, content))
     goto error;
 
-  while (section_no < expected_sections + 1 && content->cursor < content->length) { /* RE: + 1 should we just pass the correct number? */
+  while (/*section_no < expected_sections + 1 &&*/ content->cursor < content->length) { /* RE: + 1 should we just pass the correct number? */
 
     uint32_t begin_cursor;
     uint32_t end_cursor;
@@ -1006,6 +1174,10 @@ decode_data (FILE *file, file_content *content, int expected_sections)
       goto error;
 
     begin_cursor = content->cursor;
+
+    printf ("Decoding record %i/%i\n", section_no + 1, expected_sections);
+    if (section_no + 1 > expected_sections)
+      printf ("HMM... WHY ARE THERE EXTRA SECTIONS??\n");
 
     switch (byte) {
 
@@ -1045,7 +1217,7 @@ decode_data (FILE *file, file_content *content, int expected_sections)
         break;
 
       case 12:
-        if (!decode_model_record (file, content))
+        if (!decode_model_record (file, content, map))
           goto error;
         break;
 

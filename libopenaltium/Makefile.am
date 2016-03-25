@@ -2,16 +2,26 @@ lib_LTLIBRARIES = libopenaltium.la
 
 libopenaltium_la_SOURCES = \
 	content-parser.c \
+	content-parser.h \
+	parameters.c \
+	parameters.h \
+	models.c \
+	models.h \
 	pcblib-data.c \
-	pcblib.c
+	pcblib-data.h \
+	pcblib.c \
+	pcblib.h
 
 libopenaltium_la_CFLAGS = \
 	$(GLIB_CFLAGS) \
+	$(GIO_CFLAGS) \
 	$(GSF_CFLAGS)
 
 libopenaltium_la_LDFLAGS = \
 	$(GLIB_LIBS) \
-	$(GSF_LIBS)
+	$(GIO_LIBS) \
+	$(GSF_LIBS) \
+	-lm
 
 bin_PROGRAMS = read_data
 
@@ -20,11 +30,14 @@ read_data_SOURCES = \
 
 read_data_CFLAGS = \
 	$(GLIB_CFLAGS) \
+	$(GIO_CFLAGS) \
 	$(GSF_CFLAGS)
 
 read_data_LDFLAGS = \
 	$(GLIB_LIBS) \
-	$(GSF_LIBS)
+	$(GIO_LIBS) \
+	$(GSF_LIBS) \
+	-lm
 
 .PHONY: test
 
