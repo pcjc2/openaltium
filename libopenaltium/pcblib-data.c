@@ -352,7 +352,7 @@ decode_text_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &dw2)) return 0;  /* 0 Bytes left in super-small format */
   printf (" DWORDS %i, %i\n", dw1, dw2);
 
-  if (record_length > 43) {
+  if (record_length >= 123) {
 
     if (!content_get_uint16 (content, &w2)) return 0;
     printf (" WORD %i\n", w2);
@@ -369,6 +369,15 @@ decode_text_record (FILE *file, file_content *content)
     printf ("  BYTE %i\n", byte);
 
     if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+
+
+#if 0
     if (dw1 == 0) { /* ???? */
       /* Something else?? */
 
@@ -376,8 +385,12 @@ decode_text_record (FILE *file, file_content *content)
       printf ("  Skipped 8 bytes\n");
 
     } else if (dw1 == 200000) {
-      content_skip_bytes (content, 17);
-      printf ("  Skipped 17 bytes\n");
+#endif
+    if (record_length >= 226) {
+//      content_skip_bytes (content, 17);
+//      printf ("  Skipped 17 bytes\n");
+      content_skip_bytes (content, 9);
+      printf ("  Skipped 9 bytes\n");
 
       if (!content_get_byte (content, &byte)) return 0;
       printf ("  BYTE %i\n", byte);
@@ -398,20 +411,26 @@ decode_text_record (FILE *file, file_content *content)
 
       if (!content_get_byte (content, &byte)) return 0;
       printf ("  BYTE %i\n", byte);
-
-      if (record_length == 230) {
-        if (!content_get_uint32 (content, &dw1)) return 0;
-        printf ("  DWORD %i\n", dw1);
-      } else {
-        g_warn_if_fail (record_length == 226);
-      }
-
-    } else {
-      content->cursor -= 4;
     }
+
+    if (record_length >= 230) {
+      if (!content_get_uint32 (content, &dw1)) return 0;
+      printf ("  DWORD %i\n", dw1);
+    }
+
+    if (record_length != 230 &&
+        record_length != 226 &&
+        record_length != 123)
+      g_error ("Bad record length %i\n", record_length);
+
+//    } else {
+//      content->cursor -= 4;
+//    }
   } else {
     g_assert (record_length == 43);
   }
+
+  printf ("Getting text from file offset %#x\n", content->cursor);
 
   if ((text = content_get_length_multi_prefixed_string (content)) == NULL) return 0;
 
@@ -494,7 +513,7 @@ static int
 decode_polygon_record (FILE *file, file_content *content)
 {
   uint32_t record_length;
-  uint8_t first_byte;
+  uint32_t fields_length;
   uint8_t byte;
   uint16_t w1;
   uint32_t dw1;
@@ -509,8 +528,8 @@ decode_polygon_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &first_byte)) return 0;
-  printf ("  BYTE %i\n", first_byte);
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -547,12 +566,16 @@ decode_polygon_record (FILE *file, file_content *content)
   }
   printf ("\n");
 
-  if (record_length - string_length - 16 * count == 31) {
+  fields_length = record_length - string_length - 16 * count;
+
+  if (fields_length >= 31) {
       if (!content_get_uint32 (content, &dw1)) return 0;
       printf ("  DWORD %i\n", dw1);
-  } else {
-    g_assert (record_length - string_length - 16 * count == 27);
   }
+
+  if (fields_length != 31 &&
+      fields_length != 27)
+    g_error ("Bad fields length %i\n", fields_length);
 
   return 1;
 }
@@ -562,6 +585,7 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
 {
   uint8_t byte;
   uint32_t record_length;
+  uint32_t fields_length;
   uint16_t w1;
   uint32_t dw1;
   int32_t something;
@@ -608,7 +632,7 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
 
   if (!content_get_uint32 (content, &count)) return 0;
 
-  printf ("  Model outline: ");
+  printf ("  Model outline (%i vertices): ", count);
 
   for (i = 0; i < count; i++) {
     double x, y;
@@ -621,6 +645,23 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   }
   printf ("\n");
 
+  fields_length = record_length - string_length - 16 * count;
+
+  if (fields_length >= 31) {
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+  }
+
+//  if (fields_length >= 123) {
+//    content_skip_bytes (content, 28);
+//    printf ("  Skipped 28 bytes\n");
+//  }
+
+  if (fields_length != 31 &&
+      fields_length != 27)
+    g_error ("Bad fields length %i\n", fields_length);
+
+#if 0
   if (record_length - string_length == 111) {
     /* GOODNESS KNOWS */
     if (!content_get_uint32 (content, &dw1)) return 0;
@@ -631,6 +672,7 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   } else {
     g_assert (record_length - string_length == 91);
   }
+#endif
 
   if (!parameter_list_get_bool (parameter_list, "MODEL.EMBED")) {
     parameter_list_free (parameter_list);
