@@ -79,6 +79,9 @@ model_map_new ()
 void
 model_map_free (model_map *map)
 {
+  if (map == NULL)
+    return;
+
   g_hash_table_unref (map->hash);
   g_slice_free (model_map, map);
 }

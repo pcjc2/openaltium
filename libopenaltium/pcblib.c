@@ -44,13 +44,6 @@ fprint_coord (FILE *file, int32_t coord)
   fprintf (file, "%.2fmil", (double)coord / 10000.);
 }
 
-/* XXX: DUPLICATE FROM pcblib-data.c */
-static void
-print_coord (int32_t coord)
-{
-  fprint_coord (stdout, coord);
-}
-
 
 static int
 check_gerror (GError *error) {
@@ -66,7 +59,6 @@ static file_content *
 input_to_content (GsfInput *input)
 {
   file_content *content;
-  size_t size;
 
   content = g_new0 (file_content, 1);
   content->cursor = 0;
@@ -101,7 +93,7 @@ input_decompress_to_file (GsfInput *input, const char *file)
   decomp_os = g_converter_output_stream_new (G_OUTPUT_STREAM (file_os), G_CONVERTER (decomp));
 
   length = gsf_input_size (input);
-  data = (char *)gsf_input_read (input, length, NULL);
+  data = gsf_input_read (input, length, NULL);
   if (data == NULL) {
     fprintf (stdout, "Read error grabbing data\n");
     return;
@@ -190,15 +182,11 @@ parse_library_models (GsfInfile *library)
 {
   model_map *map;
   GsfInfile *models;
-  GsfInput *header;
   GsfInput *data;
   GsfInput *step;
   uint32_t record_count;
   file_content *content;
-  char *parameters;
-  int step_resource_index;
   char *step_resource_string;
-  char *outname;
   int i;
 
   models = GSF_INFILE (gsf_infile_child_by_name (library, "Models"));
@@ -324,7 +312,6 @@ parse_library_resource_data (GsfInfile *library, model_map *map)
   for (i = 0; i < num_footprints; i++) {
     char *footprint_name;
     char *resource_name;
-    char *model_id;
 
     footprint_name = content_get_length_multi_prefixed_string (content);
     if (footprint_name == NULL) {
@@ -365,11 +352,8 @@ static void
 parse_library_resource (GsfInfile *root)
 {
   GsfInfile *library;
-  GsfInput *data;
 
   uint32_t record_count;
-  char *parameters;
-  uint32_t num_footprints;
   model_map *map;
 
   library = GSF_INFILE (gsf_infile_child_by_name (root, "Library"));
@@ -393,11 +377,12 @@ parse_root (GsfInfile *root)
 {
   int children;
   int i;
+//  char *name;
 
   children = gsf_infile_num_children (root);
   for (i = 0; i < children; i++) {
     GsfInput *input = gsf_infile_child_by_index (root, i);
-    char const *name = gsf_input_name (input);
+//    char const *name = gsf_input_name (input);
     GsfInfile *child = GSF_IS_INFILE (input) ? GSF_INFILE (input) : NULL;
     gboolean is_dir = (child != NULL) &&
                       gsf_infile_num_children (child) > 0;
@@ -447,7 +432,6 @@ main (int argc, char **argv)
   extern char *optarg;
   extern int optind, opterr, optopt;
 
-  file_content content;
   char *optstring = "f:h";
   int opt;
   int option_index = 0;
@@ -456,9 +440,6 @@ main (int argc, char **argv)
     {"help", 0, 0, 'h'}
   };
   char *filename = NULL;
-  char *data;
-  gsize length;
-  GError *error = NULL;
 
   //g_type_init ();
 
@@ -492,7 +473,6 @@ main (int argc, char **argv)
 
   parse_file (filename);
 
-cleanup:
   g_free (filename);
 
   exit (EXIT_SUCCESS);

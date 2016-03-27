@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <glib.h>
 #include <math.h>
+#include <string.h>
 
 #include "content-parser.h"
 #include "parameters.h"
@@ -43,6 +44,22 @@ print_coord (int32_t coord)
 }
 
 static int
+skip_10x_ff (file_content *content)
+{
+  uint16_t word;
+  int i;
+
+  printf ("  SKIPPING FFFF FFFF FFFF FFFF FFFF");
+
+  for (i = 0; i < 5; i++) {
+    if (!content_get_uint16 (content, &word)) return 0;
+    g_assert (word == 0xFFFF);
+  }
+
+  return 1;
+}
+
+static int
 decode_name (FILE *file, file_content *content)
 {
   char *string;
@@ -59,26 +76,26 @@ decode_name (FILE *file, file_content *content)
 static int
 decode_arc_record (FILE *file, file_content *content)
 {
-  uint8_t first_byte;
+  uint32_t record_length;
   uint8_t byte;
-  uint16_t w1, w2, w3;
+  uint16_t w1, w2;
   int32_t x, y, radius;
-  int32_t thickness;
+  uint32_t thickness;
   double start_angle, end_angle;
   uint32_t dw1, dw2;
 
-  printf ("Decoding arc record\n");
+  printf ("arc\n");
 
-  if (!content_get_byte (content, &first_byte)) return 0;
-  printf ("  BYTE %i\n", first_byte);
+  if (!content_get_uint32 (content, &record_length)) return 0;
+  printf ("  DWORD %i (record length)\n", record_length);
+
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
+  printf ("  WORD %i\n", w1);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &x)) return 0;
   if (!content_get_int32 (content, &y)) return 0;
@@ -93,27 +110,30 @@ decode_arc_record (FILE *file, file_content *content)
   printf ("  Angle %f°-%f°\n", start_angle, end_angle);
 
   if (!content_get_uint32 (content, &thickness)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  printf ("  Next dimension pair: ");
-  print_coord (thickness);
-  printf (", ");
-  print_coord (dw2);
-  printf ("\n");
+  printf ("  Thickness: "); print_coord (thickness); printf ("\n");
 
-  if (!content_get_uint16 (content, &w1)) return 0;
-  printf ("  WORD %i\n", w1);
+  /* XXX: Assume inserting this here for larger records, gives the ordering? (small variant discovered last) */
+  if (record_length >= 52) {
+    if (!content_get_uint32 (content, &dw2)) return 0;
+    printf ("  Unknown dimension: "); print_coord (dw2); printf ("\n");
+  }
+
+  if (!content_get_uint16 (content, &w2)) return 0;
+  printf ("  WORD %i\n", w2);
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
-#ifndef NO_EXTRA_ARC_DWORD
-  if (first_byte == 56) {
+  if (record_length >= 56) {
     if (!content_get_uint32 (content, &dw1)) return 0;
     printf ("  DWORD %i\n", dw1);
-  } else {
-    g_assert (first_byte == 52);
   }
-#endif
+
+  if (record_length != 56 &&
+      record_length != 52 &&
+      record_length != 48)
+    g_error ("Bad record length %i\n", record_length);
+
 
   /* XXX: GOODNESS KNOWS WHAT THE ANGLE CONVENTION IS... EXAMPLES SO FAR ARE FULL CIRCLE ARCS!!! */
   fprintf (file, "\tElementArc[");
@@ -130,330 +150,18 @@ decode_arc_record (FILE *file, file_content *content)
 static int
 decode_record_3 (FILE *file, file_content *content)
 {
-  uint8_t first_byte;
-  uint8_t byte;
-  uint16_t w1, w2, w3;
-  int32_t x, y, c1, c2, c3, c4, c5, c6, c7;
-  uint32_t dw1, dw2;
+  uint32_t record_length;
+  uint8_t byte, b1, b2, b3;
+  uint8_t b[7];
+  uint16_t w1, w2;
+  int32_t x, y;
+  int32_t c[12];
+  int i;
 
-  printf ("Decoding record of type 3 (unknown meaning)\n");
+  printf ("type 3 (unknown meaning)\n");
 
-  if (!content_get_byte (content, &first_byte)) return 0;
-  printf ("  BYTE %i", first_byte);
-
-  if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i", w1, w2, w3);
-
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
-
-  if (!content_get_int32 (content, &x)) return 0;
-  if (!content_get_int32 (content, &y)) return 0;
-  printf ("  Position (");
-  print_coord (x); printf (", ");
-  print_coord (y); printf (")\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  //
-#if 0
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
-
-#endif
-  //
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf ("\n");
-
-  if (!content_get_uint16 (content, &w1)) return 0;
-  printf ("  WORD %i\n", w1);
-
-#ifndef NO_EXTRA_SECTION_3_DWORD
-  if (first_byte == 241) {
-    /* SKIP MORE? */
-    content_skip_bytes (content, 38);
-    printf ("  Skipped 38 bytes\n");
-  } else if (first_byte == 209) {
-    /* SKIP DIFFERENT? */
-    content_skip_bytes (content, 6);
-    printf ("  Skipped 6 bytes\n");
-  } else {
-    g_assert (first_byte == 203); /* GUESS */
-  }
-//  if (!content_get_uint32 (content, &dw1)) return 0;
-//  printf ("  DWORD %i\n", dw1);
-#endif
-
-  return 1;
-}
-
-static int
-decode_silkline (FILE *file, file_content *content)
-{
-  uint32_t first_dw;
-  uint8_t first_byte;
-  uint8_t byte;
-  uint16_t w1, w2, w3;
-  int32_t x1, y1, x2, y2, width;
-  uint32_t dw1, dw2;
-
-  printf ("Decoding silkline\n");
-
-#if 0
-  if (!content_get_byte (content, &first_byte)) return 0;
-  printf ("  BYTE %i", first_byte);
-
-  if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
-#endif
-
-
-  if (!content_get_uint32 (content, &first_dw)) return 0; /* Some kind of size? */
-  printf ("  DWORD %i\n", first_dw);
+  if (!content_get_uint32 (content, &record_length)) return 0;
+  printf ("  DWORD %i (record length)\n", record_length);
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
@@ -461,8 +169,101 @@ decode_silkline (FILE *file, file_content *content)
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!skip_10x_ff (content)) return 0;
+
+  if (!content_get_int32 (content, &x)) return 0;
+  if (!content_get_int32 (content, &y)) return 0;
+  printf ("  Position (");
+  print_coord (x); printf (", ");
+  print_coord (y); printf (")\n");
+
+  if (!content_get_int32 (content, &c[0])) return 0;
+  if (!content_get_int32 (content, &c[1])) return 0;
+  printf ("  c[0]: "); print_coord (c[0]);
+  printf (" c[1]: "); print_coord (c[1]); printf ("\n");
+
+  if (!content_get_byte (content, &b1)) return 0;
+  if (!content_get_byte (content, &b2)) return 0;
+  if (!content_get_byte (content, &b3)) return 0;
+  printf ("BYTES %i, %i, %i\n", b1, b2, b3);
+
+  if (!content_get_int32 (content, &c[2])) return 0;
+  printf ("  c[2]: "); print_coord (c[2]); printf ("\n");
+
+  if (!content_get_uint16 (content, &w2)) return 0;
+  printf ("  WORD %i\n", w2);
+
+  if (!content_get_int32 (content, &c[3])) return 0;
+  if (!content_get_int32 (content, &c[4])) return 0;
+  if (!content_get_int32 (content, &c[5])) return 0;
+  if (!content_get_int32 (content, &c[6])) return 0;
+  if (!content_get_int32 (content, &c[7])) return 0;
+  if (!content_get_int32 (content, &c[8])) return 0;
+  if (!content_get_int32 (content, &c[9])) return 0;
+  if (!content_get_int32 (content, &c[10])) return 0;
+  if (!content_get_int32 (content, &c[11])) return 0;
+
+  printf ("  c[3]: "); print_coord (c[3]);
+  printf (" c[4]: "); print_coord (c[4]);
+  printf (" c[5]: "); print_coord (c[5]);
+  printf (" c[6]: "); print_coord (c[6]);
+  printf (" c[7]: "); print_coord (c[7]); printf ("\n");
+  printf ("  c[8]: "); print_coord (c[8]);
+  printf (" c[9]: "); print_coord (c[9]);
+  printf (" c[10]: "); print_coord (c[10]);
+  printf (" c[11]: "); print_coord (c[11]); printf ("\n");
+
+  if (record_length >= 209) {
+    for (i = 0; i < 32; i++) {
+      if (!content_get_int32 (content, &c[1])) return 0;
+      printf ("  n[%i]: ", i); print_coord (c[1]); printf ("\n");
+    }
+
+    if (!content_get_byte (content, &b[0])) return 0;
+    if (!content_get_byte (content, &b[1])) return 0;
+    if (!content_get_byte (content, &b[2])) return 0;
+    if (!content_get_byte (content, &b[3])) return 0;
+    if (!content_get_byte (content, &b[4])) return 0;
+    if (!content_get_byte (content, &b[5])) return 0;
+    if (!content_get_byte (content, &b[6])) return 0;
+    printf ("  BYTES %i, %i, %i, %i, %i, %i, %i\n", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+  }
+
+  if (record_length >= 241) {
+    content_skip_bytes (content, 32);
+    printf ("  Skipped 32 bytes\n");
+  }
+
+  if (record_length != 241 &&
+      record_length != 209 &&
+      record_length != 74)
+    g_error ("Bad record length %i\n", record_length);
+
+  return 1;
+}
+
+static int
+decode_silkline (FILE *file, file_content *content)
+{
+  uint32_t record_length;
+  uint8_t byte;
+  uint16_t w1;
+  uint8_t b1, b2, b3;
+  int32_t x1, y1, x2, y2, width;
+  uint32_t dw1;
+
+  printf ("silkline\n");
+
+  if (!content_get_uint32 (content, &record_length)) return 0; /* Some kind of length? */
+  printf ("  DWORD %i\n", record_length);
+
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
+
+  if (!content_get_uint16 (content, &w1)) return 0;
+  printf ("  WORD %i\n", w1);
+
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &x1)) return 0;
   if (!content_get_int32 (content, &y1)) return 0;
@@ -476,18 +277,28 @@ decode_silkline (FILE *file, file_content *content)
   print_coord (y2); printf (") Width: ");
   print_coord (width); printf ("\n");
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  printf ("  DWORD %i, %i\n", dw1, dw2);
+  if (!content_get_byte (content, &b1)) return 0;
+  if (!content_get_byte (content, &b2)) return 0;
+  if (!content_get_byte (content, &b3)) return 0;
+  printf ("  BYTES %i, %i, %i\n", b1, b2, b3);
 
-#ifndef NO_EXTRA_SILKLINE_DWORD
-  if (first_dw == 45) {
+  if (record_length >= 41) {
+    if (!content_get_byte (content, &byte)) return 0;
+    printf ("  BYTE %i\n", byte);
     if (!content_get_uint32 (content, &dw1)) return 0;
     printf ("  DWORD %i\n", dw1);
-  } else {
-    g_assert (first_dw == 41);
   }
-#endif
+
+  if (record_length >= 45) {
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+  }
+
+  if (record_length != 45 &&
+      record_length != 41 &&
+      record_length != 36)
+    g_error ("Bad record length %i\n", record_length);
+
 
   fprintf (file, "\tElementLine[");
   fprint_coord (file, x1);    fprintf (file, " ");
@@ -502,135 +313,109 @@ decode_silkline (FILE *file, file_content *content)
 static int
 decode_text_record (FILE *file, file_content *content)
 {
-  uint32_t first_dw;
+  uint32_t record_length;
   uint8_t byte;
   uint16_t w1, w2, w3;
   int32_t x, y, height;
   double angle;
-  uint32_t dw1, dw2, dw3, dw4, dw5;
+  uint32_t dw1, dw2, dw3, dw4, dw5, dw6, dw7;
   char *text;
-  char *font;
-  bool kludge_mode = false;
+  char *font = NULL;
 
-  printf ("Decoding text record\n");
+  printf ("text\n");
 
-#if 0
+  if (!content_get_uint32 (content, &record_length)) return 0; /* NB: Excludes string */
+  printf ("  DWORD %i\n", record_length);
+
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
-  if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
   if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
-#endif
+  printf ("  WORD %i\n", w3);
 
-  if (!content_get_uint32 (content, &first_dw)) return 0; /* Some kind of size? */
-  printf ("  DWORD %i\n", first_dw);
+  if (!skip_10x_ff (content)) return 0;                 /* 30 Bytes left in super-small format */
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
-
-  if (!content_get_uint16 (content, &w1)) return 0;
-  printf ("  WORD %i\n", w1);
-
-  if (first_dw == 0x20) {
-    kludge_mode = true;
-//    content_skip_bytes (content, 29);
-//    return 1;
-  }
-
-  if (kludge_mode)
-    {
-      printf ("  NOT SKIPPING 10 BYTES... SPECIAL TEST KLUDGE\n");
-      content_skip_bytes (content, 1);
-      printf ("  Skipped 1 bytes\n");
-    }
-  else
-    {
-      content_skip_bytes (content, 10);
-      printf ("  Skipped 10 bytes\n");
-    }
-
-  if (!content_get_int32 (content, &x)) return 0;
-  if (!content_get_int32 (content, &y)) return 0;
-  if (!content_get_int32 (content, &height)) return 0;
-
-#if POSSIBLE_NEW_FORMAT
-  if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_double (content, &angle)) return 0;
-#endif
+  if (!content_get_int32 (content, &x)) return 0;      /* 26 Bytes left in super-small format */
+  if (!content_get_int32 (content, &y)) return 0;      /* 22 Bytes left in super-small format */
+  if (!content_get_int32 (content, &height)) return 0; /* 18 Bytes left in super-small format */
+  if (!content_get_uint16 (content, &w1)) return 0;    /* 16 Bytes left in super-small format */
+  if (!content_get_double (content, &angle)) return 0; /*  8 Bytes left in super-small format */
 
   printf ("  Text position (");
   print_coord (x); printf (", ");
   print_coord (y); printf (") Height: ");
   print_coord (height); printf ("\n");
+  printf ("  WORD %i\n", w1);
   printf ("  Rotation angle %f\n", angle);
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
+  if (!content_get_uint32 (content, &dw1)) return 0;  /* 4 Bytes left in super-small format */
+  if (!content_get_uint32 (content, &dw2)) return 0;  /* 0 Bytes left in super-small format */
+  printf (" DWORDS %i, %i\n", dw1, dw2);
 
-#if POSSIBLE_NEW_FORMAT
-  if (!content_get_uint16 (content, &w2)) return 0;
-#endif
+  if (record_length > 43) {
 
-#ifndef POSSIBLE_NEW_FORMAT
-  if (kludge_mode)
-    {
-      printf ("NASTY KLUDGE: Dummy bytes dw3, dw4, dw5\n");
-      dw3 = dw4 = dw5 = 0;
-    }
-  else
-    {
+    if (!content_get_uint16 (content, &w2)) return 0;
+    printf (" WORD %i\n", w2);
+
+    if (!content_get_byte (content, &byte)) return 0;
+    printf ("  BYTE %i\n", byte);
+
+    font = content_get_n_wchars (content, 32);
+    if (font == NULL) return 0;
+    printf ("  Font is %s\n", font);
+    g_free (font);
+
+    if (!content_get_byte (content, &byte)) return 0;
+    printf ("  BYTE %i\n", byte);
+
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    if (dw1 == 0) { /* ???? */
+      /* Something else?? */
+
+      content_skip_bytes (content, 8);
+      printf ("  Skipped 8 bytes\n");
+
+    } else if (dw1 == 200000) {
+      content_skip_bytes (content, 17);
+      printf ("  Skipped 17 bytes\n");
+
+      if (!content_get_byte (content, &byte)) return 0;
+      printf ("  BYTE %i\n", byte);
+
+      if (!content_get_uint32 (content, &dw1)) return 0;
+      if (!content_get_uint32 (content, &dw2)) return 0;
       if (!content_get_uint32 (content, &dw3)) return 0;
       if (!content_get_uint32 (content, &dw4)) return 0;
       if (!content_get_uint32 (content, &dw5)) return 0;
-    }
-  printf ("  DWORDS %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5);
-#endif
+      if (!content_get_uint32 (content, &dw6)) return 0;
+      if (!content_get_uint32 (content, &dw7)) return 0;
+      printf ("  DWORD %i, %i, %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5, dw6, dw7);
 
-  printf (" WORD %i, DOUBLE (angle %f), DWORDS %i, %i, WORD %i\n", w1, angle, dw1, dw2, w2);
+      font = content_get_n_wchars (content, 32);
+      if (font == NULL) return 0;
+      printf ("  Font is %s\n", font);
+      g_free (font);
 
-  if (first_dw != 0x20)
-    {
       if (!content_get_byte (content, &byte)) return 0;
       printf ("  BYTE %i\n", byte);
-    }
-  else
-    {
-      printf ("NASTY KLUDGE: NOT READING BYTE\n");
-    }
 
-  font = content_get_n_wchars (content, 32);
-  if (font == NULL) return 0;
-  printf ("  Font is %s\n", font);
-  g_free (font);
+      if (record_length == 230) {
+        if (!content_get_uint32 (content, &dw1)) return 0;
+        printf ("  DWORD %i\n", dw1);
+      } else {
+        g_warn_if_fail (record_length == 226);
+      }
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
-
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (kludge_mode)
-    {
-      printf ("NASTY KLUDGE: Dummy bytes dw2, dw3\n");
-      dw2 = dw3 = 0;
+    } else {
+      content->cursor -= 4;
     }
-  else
-    {
-      if (!content_get_uint32 (content, &dw2)) return 0;  /* Text object number or pin association? */
-      if (!content_get_uint32 (content, &dw3)) return 0;
-    }
-  printf ("  DWORDS %i, %i, %i\n", dw1, dw2, dw3);
+  } else {
+    g_assert (record_length == 43);
+  }
 
   if ((text = content_get_length_multi_prefixed_string (content)) == NULL) return 0;
-  printf ("  Text is '%s'\n", text);
 
-#ifndef NO_EXTRA_TEXT_4BYTES
-  if (!kludge_mode)
-    {
-      content_skip_bytes (content, 4);
-      printf ("  Skipped 4 bytes\n");
-    }
-#endif
+  printf ("  Text is '%s'\n", text);
 
 #if 0 /* PCB DOESN'T SUPPORT TEXT IN ELEMENTS! */
   fprintf (file, "\tText[");
@@ -649,23 +434,24 @@ decode_text_record (FILE *file, file_content *content)
 static int
 decode_record_6 (FILE *file, file_content *content)
 {
+  uint32_t record_length;
   uint8_t byte;
-  uint16_t w1, w2, w3;
+  uint16_t w1;
   int32_t x, y, something;
   uint32_t dw1, dw2;
 
-  printf ("Decoding record type 6 (unknown meaning, similar to unknown record 1)\n");
+  printf ("type 6 (unknown meaning, similar to arc record 1)\n");
+
+  if (!content_get_uint32 (content, &record_length)) return 0;
+  printf ("  DWORD %i (record length)\n", record_length);
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i\n", w1, w2, w3);
+  printf ("  WORD %i\n", w1);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &x)) return 0;
   if (!content_get_int32 (content, &y)) return 0;
@@ -680,16 +466,26 @@ decode_record_6 (FILE *file, file_content *content)
   printf ("  DWORDS %i, %i\n", dw1, dw2);
 
   if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  printf ("  DWORDS %i, %i\n", dw1, dw2);
+  printf ("  DWORD %i\n", dw1);
+
+  /* XXX: Unknown which field is dropped in the small record variant */
+  if (record_length >= 42) {
+    if (!content_get_uint32 (content, &dw2)) return 0;
+    printf ("  DWORD %i\n", dw2);
+  }
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
-#ifndef NO_EXTRA_SECTION_6_DWORD
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  printf ("  DWORD %i\n", dw1);
-#endif
+  if (record_length >= 46) {
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+  }
+
+  if (record_length != 46 &&
+      record_length != 42 &&
+      record_length != 38)
+    g_error ("Bad record length %i\n", record_length);
 
   return 1;
 }
@@ -697,37 +493,42 @@ decode_record_6 (FILE *file, file_content *content)
 static int
 decode_polygon_record (FILE *file, file_content *content)
 {
+  uint32_t record_length;
   uint8_t first_byte;
   uint8_t byte;
-  uint16_t w1, w2, w3;
+  uint16_t w1;
+  uint32_t dw1;
   int32_t something;
   char *attributes;
+  size_t string_length;
   uint32_t count;
   int i;
 
-  printf ("Decoding polygon\n");
+  printf ("polygon\n");
+
+  if (!content_get_uint32 (content, &record_length)) return 0;
+  printf ("  DWORD %i (record length)\n", record_length);
 
   if (!content_get_byte (content, &first_byte)) return 0;
-  printf ("  BYTE %i", first_byte);
+  printf ("  BYTE %i\n", first_byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &w3)) return 0;
-  printf ("  WORDS %i, %i, %i", w1, w2, w3);
+  printf ("  WORD %i\n", w1);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &something)) return 0;
   printf ("  Something: ");
   print_coord (something); printf ("\n");
 
   if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i", byte);
+  printf ("  BYTE %i\n", byte);
 
   attributes = content_get_length_dword_prefixed_string (content);
   if (attributes == NULL)
     return 0;
+  string_length = strlen (attributes);
+
   printf ("  Polygon attributes: %s\n", attributes);
   g_free (attributes);
 
@@ -746,6 +547,13 @@ decode_polygon_record (FILE *file, file_content *content)
   }
   printf ("\n");
 
+  if (record_length - string_length - 16 * count == 31) {
+      if (!content_get_uint32 (content, &dw1)) return 0;
+      printf ("  DWORD %i\n", dw1);
+  } else {
+    g_assert (record_length - string_length - 16 * count == 27);
+  }
+
   return 1;
 }
 
@@ -754,9 +562,11 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
 {
   uint8_t byte;
   uint32_t record_length;
-  uint16_t w1, w2, w3;
+  uint16_t w1;
+  uint32_t dw1;
   int32_t something;
   char *parameter_string;
+  size_t string_length;
   parameter_list *parameter_list;
   uint32_t count;
   int i;
@@ -767,31 +577,31 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   double rx, ry, rz;
   double tx, ty, tz;
 
-  printf ("Decoding model record\n");
+  printf ("model\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0;
-  printf ("  Record length is %i", record_length);
+  printf ("  Record length is %i\n", record_length);
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i", byte);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  printf ("  WORD %i", w1);
+  printf ("  WORD %i\n", w1);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &something)) return 0;
   printf ("  Something: ");
   print_coord (something); printf ("\n");
 
   if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i", byte);
+  printf ("  BYTE %i\n", byte);
 
   parameter_string = content_get_length_dword_prefixed_string (content);
   if (parameter_string == NULL)
     return 0;
   printf ("  Model parameter string: %s\n", parameter_string);
+  string_length = strlen (parameter_string);
 
   parameter_list = parameter_list_new_from_string (parameter_string);
   g_free (parameter_string);
@@ -811,12 +621,29 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   }
   printf ("\n");
 
+  if (record_length - string_length == 111) {
+    /* GOODNESS KNOWS */
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+  } else if (record_length - string_length == 95) {
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+  } else {
+    g_assert (record_length - string_length == 91);
+  }
+
+  if (!parameter_list_get_bool (parameter_list, "MODEL.EMBED")) {
+    parameter_list_free (parameter_list);
+    return 1;
+  }
+
   model_id = parameter_list_get_string (parameter_list, "MODELID");
   info = model_map_find_by_id (map, model_id);
   g_free (model_id);
 
   if (info == NULL) {
     printf ("XXX: DID NOT FIND MODEL ASSOCIATED WITH THIS MODELID\n");
+    parameter_list_free (parameter_list);
     return 0;
   }
 
@@ -916,7 +743,9 @@ decode_record_15 (FILE *file, file_content *content)
   uint8_t byte;
   uint32_t dw1, dw2;
 
-  printf ("Decoding record type 15 (unknown meaning)\n");
+  printf ("type 15 (unknown meaning)\n");
+
+  g_assert_not_reached ();
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i", byte);
@@ -932,9 +761,9 @@ static int
 decode_pin_record (FILE *file, file_content *content)
 {
   uint8_t b1, b2, b3;
-  uint32_t skip_length;
   uint8_t length_bytes;
-  uint16_t w1, w2;
+  uint16_t w1;
+  uint16_t flags;
   uint16_t type_word;
   int32_t x, y, c1, c2, c3, c4, c5, c6, c7;
   double angle;
@@ -949,10 +778,11 @@ decode_pin_record (FILE *file, file_content *content)
   bool pin_is_round;
   bool pin_is_hole;
   bool pin_is_smd;
+  uint32_t last_section_length;
 
-  printf ("Decoding pin record\n");
+  printf ("pin\n");
 
-  if ((name = content_get_length_multi_prefixed_string (content)) == NULL) return 0;
+  if ((name = content_get_length_multi_prefixed_string (content)) == NULL) return 0; /* Most use this */
   printf ("  Pin '%s'\n", name);
 
   if (!content_get_byte (content, &b1)) return 0;
@@ -972,12 +802,13 @@ decode_pin_record (FILE *file, file_content *content)
   printf ("  BYTES %i, %i\n", b1, length_bytes);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &w2)) return 0;
-  if (!content_get_uint16 (content, &type_word)) return 0;
-  printf ("  WORDS %i %i %i\n", w1, w2, type_word);
+  if (!content_get_uint16 (content, &flags)) return 0;
+  printf ("  WORDS %i %i\n", w1, flags);
 
-  content_skip_bytes (content, 10);
-  printf ("  Skipped 10 bytes\n");
+  if (!content_get_uint16 (content, &type_word)) return 0;
+  printf ("  WORD %i\n", type_word);
+
+  if (!skip_10x_ff (content)) return 0;
 
   if (!content_get_int32 (content, &x)) return 0;
   if (!content_get_int32 (content, &y)) return 0;
@@ -1034,41 +865,99 @@ decode_pin_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &dw2)) return 0;
   if (!content_get_uint32 (content, &dw3)) return 0;
   if (!content_get_uint32 (content, &dw4)) return 0;
-  if (!content_get_uint32 (content, &dw5)) return 0;
-  printf ("  DWORDS %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5);
+  printf ("  DWORDS %i, %i, %i, %i\n", dw1, dw2, dw3, dw4);
 
-  if (length_bytes == 120)
-    {
-      if (!content_get_byte (content, &to_layer)) return 0;
-      if (!content_get_byte (content, &b2)) return 0;
-      if (!content_get_byte (content, &b3)) return 0;
-      if (!content_get_byte (content, &from_layer)) return 0;
-      if (!content_get_byte (content, &b5)) return 0;
-      if (!content_get_byte (content, &b6)) return 0;
-      printf ("BYTES %i, %i, %i, %i, %i, %i\n", to_layer, b2, b3, from_layer, b5, b6);
-      if (!content_get_uint32 (content, &skip_length)) return 0;
+  if (length_bytes > 106) {
 
+    if (length_bytes == 120)
+      {
+        /* XXX: Unsure if this should be above the supposed layer infos... */
+        if (!content_get_uint32 (content, &dw1)) return 0;
+        printf ("  DWORD %i\n", dw1);
 
-      printf ("  DWORD %i (skip length?)\n", skip_length);
-      content_skip_bytes (content, skip_length); /* XXX: POSSIBLY SKIPPING OVER USEFUL DATA!! */
-      printf ("  Skipped %i bytes\n", skip_length);
-//      content_skip_bytes (content, 4);
-//      printf ("  Skipped 4 bytes\n");
-      if (skip_length != 0) {
-        printf ("******************************* NOT SURE WHY THIS IS TROUBLE???? **********************\n");
-//        content_skip_bytes (content, 4);
-//        exit (-1);
+        if (!content_get_byte (content, &to_layer)) return 0;
+        if (!content_get_byte (content, &b2)) return 0;
+        if (!content_get_byte (content, &b3)) return 0;
+        if (!content_get_byte (content, &from_layer)) return 0;
+        if (!content_get_byte (content, &b5)) return 0;
+        if (!content_get_byte (content, &b6)) return 0;
+        printf ("BYTES %i, %i, %i, %i, %i, %i\n", to_layer, b2, b3, from_layer, b5, b6);
       }
-    }
-  else if (length_bytes == 114)
-    {
+    else if (length_bytes == 114)
+      {
+        if (!content_get_uint32 (content, &dw1)) return 0;
+        printf ("  EXTRA END DWORD %i\n", dw1);
+      }
+    else
+      {
+        g_assert (length_bytes == 110); /* GUESS? */
+      }
+
+    if (!content_get_uint32 (content, &last_section_length)) return 0;
+      printf ("  DWORD %i (LAST SECTION LENGTH)\n", last_section_length);
+
+    if (last_section_length == 596 || last_section_length == 628) {
+      int i;
+
+      /* ODD PAD WITH STACK INFO? - SEEMS TO BE MULTIPLES OF 29 RECORDS */
+#if 0
+      1x   54 02 00 00  <-- READ AS EXTRA END DWORD
+
+      29x  43 84 0D 00  <- SAME AS c1 dimension from normal pin record
+      29x  CA 03 0C 00  <- SAME as c2 dimension from normal pin record
+      29x  02           <- SAME as shape type from normal pin record, e.g. 1=Round, 2=Rectangle, (3=Octagon?? - not seen)
+      2x   01
+      269x 00           <- DWORD = 4 bytes, then doubles (angle) 29 x (double) = 148 byte, 
+      32x  01
+      32x  00
+#endif
+
+      printf ("Remaining layer pad widths\n");
+      for (i = 0; i < 29; i++) {
+        if (!content_get_uint32 (content, &dw1)) return 0;
+        printf ("  %i: ", i); print_coord (dw1); printf ("\n");
+      }
+      printf ("Remaining layer pad heights\n");
+      for (i = 0; i < 29; i++) {
+        if (!content_get_uint32 (content, &dw1)) return 0;
+        printf ("  %i: ", i); print_coord (dw1); printf ("\n");
+      }
+      printf ("Remaining layer pad shapes\n");
+      for (i = 0; i < 29; i++) {
+        if (!content_get_byte (content, &b1)) return 0;
+        printf ("  %i: %i\n", i, b1);
+      }
+
+      if (!content_get_uint16 (content, &w1)) return 0;
+      printf ("  WORD %i\n", w1);
       if (!content_get_uint32 (content, &dw1)) return 0;
-      printf ("  EXTRA END DWORD %i\n", dw1);
+      printf ("  DWORD %i\n", dw1);
+      if (!content_get_double (content, &angle)) return 0;
+      printf ("  Rotation angle %f\n", angle);
+
+      /* XXX: IS THIS A FIXED LENGTH SKIP, OR SHOULD WE LOOK AT THE LENGTH HEADER */
+      content_skip_bytes (content,  257 + 32 + 32);
+      printf ("Skipped %i bytes\n", 2 + 269 + 32 + 32);
+    } else if (last_section_length == 256) {
+  //    g_warning ("*** NOT HANDLED PROPERLY YET ***");
+  //    content_skip_bytes (content, 256);
+  //    printf ("  Skipped 256 bytes\n");
+      g_assert_not_reached ();
+    } else if (last_section_length == 0) {
+      printf ("NO MORE TO READ\n");
+    } else {
+      printf ("*** LAST SECTION LENGTH OF %i\n", last_section_length);
+  //    g_assert_not_reached ();
     }
-  else
-    {
-      g_assert (length_bytes == 110); /* GUESS? */
+
+    if (last_section_length == 628) { /* 32 more bytes than we already read above with the 596 case */
+      content_skip_bytes (content, 32);
+      printf ("  Skipped 32 bytes\n");
     }
+
+  } else {
+    g_assert (length_bytes == 106);
+  }
 
 //  pin_is_round = (type_word & 8) == 0;
   pin_is_hole = (type_word & 8) == 0; /* TOTAL GUESS!! */
@@ -1076,7 +965,9 @@ decode_pin_record (FILE *file, file_content *content)
   g_assert (style1 == style2);
   g_assert (style2 == style3);
 
-  pin_is_smd   = (to_layer == from_layer); /* GUESS? */
+  pin_is_smd = (to_layer == from_layer); /* GUESS? */
+
+  pin_is_smd = (flags & 256) != 0;
 
   if (!pin_is_smd) { //(pin_is_round) {
     printf ("XXX: Assuming pin is round?\n");
@@ -1156,7 +1047,6 @@ void
 decode_data (FILE *file, file_content *content, int expected_sections, model_map *map)
 {
   uint8_t byte;
-  uint32_t length;
   int section_no = 0;
 
   printf ("Decoding data stream\n");
@@ -1175,7 +1065,7 @@ decode_data (FILE *file, file_content *content, int expected_sections, model_map
 
     begin_cursor = content->cursor;
 
-    printf ("Decoding record %i/%i\n", section_no + 1, expected_sections);
+    printf ("Decoding record at %#x (%i/%i) - ", begin_cursor - 1, section_no + 1, expected_sections);
     if (section_no + 1 > expected_sections)
       printf ("HMM... WHY ARE THERE EXTRA SECTIONS??\n");
 
@@ -1249,5 +1139,6 @@ decode_data (FILE *file, file_content *content, int expected_sections, model_map
 error:
 //  fprintf (stderr, "Oops\n");
   printf ("Oops\n");
+  exit (-1);
   return;
 }

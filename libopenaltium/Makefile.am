@@ -15,13 +15,15 @@ libopenaltium_la_SOURCES = \
 libopenaltium_la_CFLAGS = \
 	$(GLIB_CFLAGS) \
 	$(GIO_CFLAGS) \
-	$(GSF_CFLAGS)
+	$(GSF_CFLAGS) \
+	-Wall
 
 libopenaltium_la_LDFLAGS = \
 	$(GLIB_LIBS) \
 	$(GIO_LIBS) \
 	$(GSF_LIBS) \
-	-lm
+	-lm \
+	-Wall
 
 bin_PROGRAMS = read_data
 
