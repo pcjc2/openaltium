@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <glib.h>
+#include <math.h>
 
 #include "parameters.h"
 #include "models.h"
@@ -50,6 +51,11 @@ model_info_new_from_parameters (const parameter_list *list)
   info->checksum =    parameter_list_get_int (list, "CHECKSUM");
   info->embed =      parameter_list_get_bool (list, "EMBED");
   info->filename = parameter_list_get_string (list, "NAME");
+
+  /* To assist debugigng with multiple rotation angles - help to pick them out! */
+  if (fabs (info->rotx - 360.) < 0.01) info->rotx = 0.;
+  if (fabs (info->roty - 360.) < 0.01) info->roty = 0.;
+  if (fabs (info->rotz - 360.) < 0.01) info->rotz = 0.;
 
   return info;
 }

@@ -49,7 +49,7 @@ skip_10x_ff (file_content *content)
   uint16_t word;
   int i;
 
-  printf ("  SKIPPING FFFF FFFF FFFF FFFF FFFF");
+  printf ("  SKIPPING FFFF FFFF FFFF FFFF FFFF\n");
 
   for (i = 0; i < 5; i++) {
     if (!content_get_uint16 (content, &word)) return 0;
@@ -81,7 +81,7 @@ decode_arc_record (FILE *file, file_content *content)
   uint16_t w1, w2;
   int32_t x, y, radius;
   uint32_t thickness;
-  double start_angle, end_angle;
+  double start_angle, end_angle, delta_angle;
   uint32_t dw1, dw2;
 
   printf ("arc\n");
@@ -134,6 +134,9 @@ decode_arc_record (FILE *file, file_content *content)
       record_length != 48)
     g_error ("Bad record length %i\n", record_length);
 
+  delta_angle = end_angle - start_angle;
+  if (delta_angle < 0.) /* XXX: What invariants do Altium arcs have? */
+    delta_angle += 360;
 
   /* XXX: GOODNESS KNOWS WHAT THE ANGLE CONVENTION IS... EXAMPLES SO FAR ARE FULL CIRCLE ARCS!!! */
   fprintf (file, "\tElementArc[");
@@ -141,7 +144,7 @@ decode_arc_record (FILE *file, file_content *content)
   fprint_coord (file, -y);     fprintf (file, " ");
   fprint_coord (file, radius);  fprintf (file, " ");
   fprint_coord (file, radius); fprintf (file, " ");
-  fprintf (file, "%f %f ", start_angle, end_angle - start_angle);
+  fprintf (file, "%f %f ", 180 + start_angle, delta_angle);
   fprint_coord (file, thickness); fprintf (file, "]\n");
 
   return 1;
@@ -156,9 +159,10 @@ decode_record_3 (FILE *file, file_content *content)
   uint16_t w1, w2;
   int32_t x, y;
   int32_t c[12];
+  int32_t dim;
   int i;
 
-  printf ("type 3 (unknown meaning)\n");
+  printf ("type 3 (unknown meaning) - could be paste deposition?\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
@@ -213,20 +217,24 @@ decode_record_3 (FILE *file, file_content *content)
   printf (" c[10]: "); print_coord (c[10]);
   printf (" c[11]: "); print_coord (c[11]); printf ("\n");
 
-  if (record_length >= 209) {
+  if (record_length >= 203) {
     for (i = 0; i < 32; i++) {
-      if (!content_get_int32 (content, &c[1])) return 0;
-      printf ("  n[%i]: ", i); print_coord (c[1]); printf ("\n");
+      if (!content_get_int32 (content, &dim)) return 0;
+      printf ("  n[%i]: ", i); print_coord (dim); printf ("\n");
     }
 
     if (!content_get_byte (content, &b[0])) return 0;
+    printf ("  BYTES %i\n", b[0]);
+  }
+
+  if (record_length >= 209) {
     if (!content_get_byte (content, &b[1])) return 0;
     if (!content_get_byte (content, &b[2])) return 0;
     if (!content_get_byte (content, &b[3])) return 0;
     if (!content_get_byte (content, &b[4])) return 0;
     if (!content_get_byte (content, &b[5])) return 0;
     if (!content_get_byte (content, &b[6])) return 0;
-    printf ("  BYTES %i, %i, %i, %i, %i, %i, %i\n", b[0], b[1], b[2], b[3], b[4], b[5], b[6]);
+    printf ("  BYTES %i, %i, %i, %i, %i, %i\n", b[1], b[2], b[3], b[4], b[5], b[6]);
   }
 
   if (record_length >= 241) {
@@ -236,8 +244,59 @@ decode_record_3 (FILE *file, file_content *content)
 
   if (record_length != 241 &&
       record_length != 209 &&
+      record_length != 203 &&
       record_length != 74)
     g_error ("Bad record length %i\n", record_length);
+
+  /* XXX: DEBUG OUTPUT */
+  if (1) {
+    int32_t w, h;
+    int32_t pad, clear, mask;
+    int32_t c1, c2;
+    int32_t x1, y1;
+    int32_t x2, y2;
+    int32_t tx, ty;
+    double angle = 0;
+
+    c1 = c[0];
+    c2 = c[1];
+
+    if (c1 > c2)
+      {
+        w = (c2 - c1) / 2;
+        h = 0;
+        pad = c2;
+        clear = 0; // c4 - c2; /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
+        mask = 0; //c6;       /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
+      }
+    else
+      {
+        w = 0;
+        h = (c1 - c2) / 2;
+        pad = c1;
+        clear = 0; //c3 - c1; /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
+        mask = 0; //c5;       /* XXX: Assuming clearance is uniform gap around pad in width and height ! */
+      }
+
+    tx = w *  cos (angle * M_PI / 180.) + h * sin (angle * M_PI / 180.);
+    ty = w * -sin (angle * M_PI / 180.) + h * cos (angle * M_PI / 180.);
+
+    x1 = x + tx;
+    y1 = y + ty;
+    x2 = x - tx;
+    y2 = y - ty;
+
+
+    fprintf (file, "\tPad[");
+    fprint_coord (file, x1);     fprintf (file, " ");
+    fprint_coord (file, -y1);     fprintf (file, " ");
+    fprint_coord (file, x2);     fprintf (file, " ");
+    fprint_coord (file, -y2);     fprintf (file, " ");
+    fprint_coord (file, pad);   fprintf (file, " ");
+    fprint_coord (file, clear); fprintf (file, " ");
+    fprint_coord (file, mask);  fprintf (file, " ");
+    fprintf (file, "\"\" \"%s\" \"%s\"]\n", "debug", "square,onsolder");
+  }
 
   return 1;
 }
@@ -456,10 +515,11 @@ decode_record_6 (FILE *file, file_content *content)
   uint32_t record_length;
   uint8_t byte;
   uint16_t w1;
-  int32_t x, y, something;
-  uint32_t dw1, dw2;
+  int32_t x1, y1;
+  int32_t x2, y2;
+  uint32_t dw1, dw2, dw3, dw4;
 
-  printf ("type 6 (unknown meaning, similar to arc record 1)\n");
+  printf ("type 6 (unknown meaning, seems to be a rectangle - mask opening?)\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
@@ -472,33 +532,31 @@ decode_record_6 (FILE *file, file_content *content)
 
   if (!skip_10x_ff (content)) return 0;
 
-  if (!content_get_int32 (content, &x)) return 0;
-  if (!content_get_int32 (content, &y)) return 0;
-  if (!content_get_int32 (content, &something)) return 0;
-  printf ("  Coordinates? (");
-  print_coord (x); printf (", ");
-  print_coord (y); printf (") Something: ");
-  print_coord (something); printf ("\n");
+  if (!content_get_int32 (content, &x1)) return 0;
+  if (!content_get_int32 (content, &y1)) return 0;
+  printf ("  Coordinate ("); print_coord (x1); printf (", "); print_coord (y1); printf (")\n");
+
+  if (!content_get_int32 (content, &x2)) return 0;
+  if (!content_get_int32 (content, &y2)) return 0;
+  printf ("  Coordinate ("); print_coord (x2); printf (", "); print_coord (y2); printf (")\n");
+
 
   if (!content_get_uint32 (content, &dw1)) return 0;
   if (!content_get_uint32 (content, &dw2)) return 0;
   printf ("  DWORDS %i, %i\n", dw1, dw2);
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  printf ("  DWORD %i\n", dw1);
-
   /* XXX: Unknown which field is dropped in the small record variant */
   if (record_length >= 42) {
-    if (!content_get_uint32 (content, &dw2)) return 0;
-    printf ("  DWORD %i\n", dw2);
+    if (!content_get_uint32 (content, &dw3)) return 0;
+    printf ("  DWORD %i\n", dw3);
   }
 
   if (!content_get_byte (content, &byte)) return 0;
   printf ("  BYTE %i\n", byte);
 
   if (record_length >= 46) {
-    if (!content_get_uint32 (content, &dw1)) return 0;
-    printf ("  DWORD %i\n", dw1);
+    if (!content_get_uint32 (content, &dw4)) return 0;
+    printf ("  DWORD %i\n", dw4);
   }
 
   if (record_length != 46 &&
@@ -506,6 +564,19 @@ decode_record_6 (FILE *file, file_content *content)
       record_length != 38)
     g_error ("Bad record length %i\n", record_length);
 
+  /* XXX: Debug output */
+  if (1) {
+    uint32_t width;
+
+    width  = 50;
+
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
+  }
   return 1;
 }
 
@@ -702,6 +773,19 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   printf ("Initial transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
 
   printf ("rotx = %f\n", info->rotx);
+  printf ("roty = %f\n", info->roty);
+  printf ("rotz = %f\n", info->rotz);
+
+  if (1) {
+    int angle_count = ((fabs (info->rotx) > 0.01) ? 1 : 0) +
+                      ((fabs (info->roty) > 0.01) ? 1 : 0) +
+                      ((fabs (info->rotz) > 0.01) ? 1 : 0);
+
+    if (angle_count > 1) {
+      printf ("MULTIPLE ROTATIONS SET  X: %f Y: %f Z: %f - CHECK ME!! %s\n", info->rotx, info->roty, info->rotz, info->filename);
+//      g_warning ("Multiple rotation angles set... X: %f Y: %f Z: %f erroring out for debug purposes", info->rotx, info->roty, info->rotz);
+    }
+  }
 
 #if 0
   tx = ox;
@@ -712,6 +796,12 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   oy = ty;
   oz = tz;
 #endif
+
+/* XXX: These transforms may be backwards, e.g. implicitly negating the angles */
+/* XXX: These transforms may be in the wrong order (translate, x, y, z)... no
+ *      examples with multiple rotated axis were found to check ordering.. it
+ *      might be ZYX, for example. Checks so far suggest that this is correct.
+ */
 
 #if 1
   ty = (ay *  cos (info->rotx * M_PI / 180.) + az * sin (info->rotx * M_PI / 180.));
