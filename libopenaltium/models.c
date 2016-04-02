@@ -35,6 +35,8 @@ model_info *
 model_info_new_from_parameters (const parameter_list *list)
 {
   model_info *info;
+  char **path_parts;
+  int i;
 
   info = g_slice_new0 (model_info);
 
@@ -56,6 +58,15 @@ model_info_new_from_parameters (const parameter_list *list)
   if (fabs (info->rotx - 360.) < 0.01) info->rotx = 0.;
   if (fabs (info->roty - 360.) < 0.01) info->roty = 0.;
   if (fabs (info->rotz - 360.) < 0.01) info->rotz = 0.;
+
+  /* Rationalise filenames which are absolute (windows) paths! */
+  path_parts = g_strsplit (info->filename, "\\", 0);
+  g_free (info->filename);
+
+  for (i = 0; path_parts[i + 1] != NULL; i++); /* i will be the last index when this completes */
+  info->filename = g_strdup (path_parts[i]);
+
+  g_strfreev (path_parts);
 
   return info;
 }

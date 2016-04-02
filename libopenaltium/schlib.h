@@ -18,4 +18,4 @@
  */
 
 
-void decode_pcblib_data (FILE *file, file_content *content, int expected_sections, model_map *map);
+void parse_schlib_file (char *filename);

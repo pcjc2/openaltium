@@ -1,6 +1,6 @@
 /*
  *  openaltium is a set of tools for opening Altium (TM) library files
- *  Copyright (C) 2011  Peter Clifton <pcjc2@cam.ac.uk>
+ *  Copyright (C) 2016  Peter Clifton <Peter.Clifton@clifton-electronics.co.uk>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -18,4 +18,4 @@
  */
 
 
-void decode_pcblib_data (FILE *file, file_content *content, int expected_sections, model_map *map);
+void decode_schlib_data (FILE *file, file_content *content, int expected_sections, model_map *map);

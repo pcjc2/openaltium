@@ -7,10 +7,15 @@ libopenaltium_la_SOURCES = \
 	parameters.h \
 	models.c \
 	models.h \
+	pcblib.c \
+	pcblib.h \
 	pcblib-data.c \
 	pcblib-data.h \
-	pcblib.c \
-	pcblib.h
+	schlib.c \
+	schlib.h \
+	schlib-data.c \
+	schlib-data.h \
+	main.c
 
 libopenaltium_la_CFLAGS = \
 	$(GLIB_CFLAGS) \

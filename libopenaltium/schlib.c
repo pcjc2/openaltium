@@ -33,8 +33,8 @@
 #include "content-parser.h"
 #include "parameters.h"
 #include "models.h"
-#include "pcblib.h"
-#include "pcblib-data.h"
+#include "schlib-data.h"
+#include "schlib-data.h"
 
 
 /* XXX: DUPLICATE FROM pcblib-data.c */
@@ -172,7 +172,7 @@ parse_footprint_resource (FILE *file, GsfInfile *root, const char *resource_name
   g_file_set_contents (/*"Data.debug"*/outfile, content->data, content->length, NULL);
   g_free (outfile);
 
-  decode_pcblib_data (file, content, record_count, map);
+  decode_schlib_data (file, content, record_count, map);
   free_content (content);
   g_object_unref (data);
   g_object_unref (footprint);
@@ -398,7 +398,7 @@ parse_root (GsfInfile *root)
 }
 
 void
-parse_pcblib_file (char *filename)
+parse_schlib_file (char *filename)
 {
   GError *error = NULL;
   GsfInput *input;

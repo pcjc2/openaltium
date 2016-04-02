@@ -77,8 +77,9 @@ static int
 decode_arc_record (FILE *file, file_content *content)
 {
   uint32_t record_length;
-  uint8_t byte;
   uint16_t w1, w2;
+  uint8_t layer;
+  uint8_t byte;
   int32_t x, y, radius;
   uint32_t thickness;
   double start_angle, end_angle, delta_angle;
@@ -89,8 +90,8 @@ decode_arc_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -126,7 +127,7 @@ decode_arc_record (FILE *file, file_content *content)
 
   if (record_length >= 56) {
     if (!content_get_uint32 (content, &dw1)) return 0;
-    printf ("  DWORD %i\n", dw1);
+    printf ("  DWORD %i (layer cache / layer number?)\n", dw1);
   }
 
   if (record_length != 56 &&
@@ -154,21 +155,23 @@ static int
 decode_record_3 (FILE *file, file_content *content)
 {
   uint32_t record_length;
-  uint8_t byte, b1, b2, b3;
+  uint8_t layer;
+  uint8_t b1, b2, b3;
   uint8_t b[7];
   uint16_t w1, w2;
   int32_t x, y;
   int32_t c[12];
   int32_t dim;
+  uint32_t dw1;
   int i;
 
-  printf ("type 3 (unknown meaning) - could be paste deposition?\n");
+  printf ("type 3 (unknown meaning) - could be paste deposition / thermal via / ...?\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -204,8 +207,6 @@ decode_record_3 (FILE *file, file_content *content)
   if (!content_get_int32 (content, &c[7])) return 0;
   if (!content_get_int32 (content, &c[8])) return 0;
   if (!content_get_int32 (content, &c[9])) return 0;
-  if (!content_get_int32 (content, &c[10])) return 0;
-  if (!content_get_int32 (content, &c[11])) return 0;
 
   printf ("  c[3]: "); print_coord (c[3]);
   printf (" c[4]: "); print_coord (c[4]);
@@ -213,28 +214,40 @@ decode_record_3 (FILE *file, file_content *content)
   printf (" c[6]: "); print_coord (c[6]);
   printf (" c[7]: "); print_coord (c[7]); printf ("\n");
   printf ("  c[8]: "); print_coord (c[8]);
-  printf (" c[9]: "); print_coord (c[9]);
+  printf (" c[9]: "); print_coord (c[9]); printf ("\n");
+
+  if (record_length >= 203) {
+    if (!content_get_byte (content, &b[0])) return 0;
+    printf ("  BYTE %i\n", b[0]);
+  }
+
+  if (!content_get_int32 (content, &c[10])) return 0;
+  if (!content_get_int32 (content, &c[11])) return 0;
+
+
   printf (" c[10]: "); print_coord (c[10]);
   printf (" c[11]: "); print_coord (c[11]); printf ("\n");
 
   if (record_length >= 203) {
+
+//    if (!content_get_byte (content, &b[0])) return 0;
+//    printf ("  BYTE %i\n", b[0]);
+
+    /* XXX: SUSPECTED PAD / ANTIPAD SIZES ON APPROX 32 LAYERS? */
+
     for (i = 0; i < 32; i++) {
       if (!content_get_int32 (content, &dim)) return 0;
       printf ("  n[%i]: ", i); print_coord (dim); printf ("\n");
     }
-
-    if (!content_get_byte (content, &b[0])) return 0;
-    printf ("  BYTES %i\n", b[0]);
   }
 
   if (record_length >= 209) {
+    if (!content_get_uint32 (content, &dw1)) return 0;
+    printf ("  DWORD %i\n", dw1);
+
     if (!content_get_byte (content, &b[1])) return 0;
     if (!content_get_byte (content, &b[2])) return 0;
-    if (!content_get_byte (content, &b[3])) return 0;
-    if (!content_get_byte (content, &b[4])) return 0;
-    if (!content_get_byte (content, &b[5])) return 0;
-    if (!content_get_byte (content, &b[6])) return 0;
-    printf ("  BYTES %i, %i, %i, %i, %i, %i\n", b[1], b[2], b[3], b[4], b[5], b[6]);
+    printf ("  BYTES %i, %i\n", b[1], b[2]);
   }
 
   if (record_length >= 241) {
@@ -305,6 +318,7 @@ static int
 decode_silkline (FILE *file, file_content *content)
 {
   uint32_t record_length;
+  uint8_t layer;
   uint8_t byte;
   uint16_t w1;
   uint8_t b1, b2, b3;
@@ -314,10 +328,16 @@ decode_silkline (FILE *file, file_content *content)
   printf ("silkline\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0; /* Some kind of length? */
-  printf ("  DWORD %i\n", record_length);
+  printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
+
+  /* From: http://beta.ivc.no/wiki/index.php/Altium_Designer
+   * 33: Top Overlay
+   * 69: Mechanical 13 – Top Layer Component Body Information (3D models and mechanical outlines) <paired with M14>
+   * 71: Mechanical 15 – Top Layer Courtyard and Assembly Information <paired with M16>
+   */
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -350,7 +370,7 @@ decode_silkline (FILE *file, file_content *content)
 
   if (record_length >= 45) {
     if (!content_get_uint32 (content, &dw1)) return 0;
-    printf ("  DWORD %i\n", dw1);
+    printf ("  DWORD %i (layer cache / layer number?)\n", dw1);
   }
 
   if (record_length != 45 &&
@@ -373,6 +393,7 @@ static int
 decode_text_record (FILE *file, file_content *content)
 {
   uint32_t record_length;
+  uint8_t layer;
   uint8_t byte;
   uint16_t w1, w2, w3;
   int32_t x, y, height;
@@ -386,8 +407,8 @@ decode_text_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &record_length)) return 0; /* NB: Excludes string */
   printf ("  DWORD %i\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
 
   if (!content_get_uint16 (content, &w3)) return 0;
   printf ("  WORD %i\n", w3);
@@ -510,22 +531,29 @@ decode_text_record (FILE *file, file_content *content)
 }
 
 static int
-decode_record_6 (FILE *file, file_content *content)
+decode_rectangle_record (FILE *file, file_content *content)
 {
   uint32_t record_length;
+  uint8_t layer;
   uint8_t byte;
   uint16_t w1;
   int32_t x1, y1;
   int32_t x2, y2;
   uint32_t dw1, dw2, dw3, dw4;
 
-  printf ("type 6 (unknown meaning, seems to be a rectangle - mask opening?)\n");
+  printf ("rectangle\n");
 
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
+
+  /*
+   * 33: Top Overlay
+   * 37: Top Solder
+   */
+
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -556,7 +584,7 @@ decode_record_6 (FILE *file, file_content *content)
 
   if (record_length >= 46) {
     if (!content_get_uint32 (content, &dw4)) return 0;
-    printf ("  DWORD %i\n", dw4);
+    printf ("  DWORD %i (layer cache / layer number?)\n", dw4);
   }
 
   if (record_length != 46 &&
@@ -570,11 +598,42 @@ decode_record_6 (FILE *file, file_content *content)
 
     width  = 50;
 
+    /* XXX: We don't support rectangles in our footprints! */
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
     fprintf (file, "\tElementLine[");
     fprint_coord (file, x1);    fprintf (file, " ");
     fprint_coord (file, -y1);    fprintf (file, " ");
     fprint_coord (file, x2);    fprintf (file, " ");
     fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, width); fprintf (file, "]\n");
+    fprintf (file, "\tElementLine[");
+    fprint_coord (file, x1);    fprintf (file, " ");
+    fprint_coord (file, -y2);    fprintf (file, " ");
+    fprint_coord (file, x2);    fprintf (file, " ");
+    fprint_coord (file, -y1);    fprintf (file, " ");
     fprint_coord (file, width); fprintf (file, "]\n");
   }
   return 1;
@@ -585,6 +644,7 @@ decode_polygon_record (FILE *file, file_content *content)
 {
   uint32_t record_length;
   uint32_t fields_length;
+  uint8_t layer;
   uint8_t byte;
   uint16_t w1;
   uint32_t dw1;
@@ -599,8 +659,8 @@ decode_polygon_record (FILE *file, file_content *content)
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  DWORD %i (record length)\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i\n", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer);
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -654,12 +714,13 @@ decode_polygon_record (FILE *file, file_content *content)
 static int
 decode_model_record (FILE *file, file_content *content, model_map *map)
 {
-  uint8_t byte;
   uint32_t record_length;
+  uint8_t layer;
   uint32_t fields_length;
   uint16_t w1;
   uint32_t dw1;
   int32_t something;
+  uint8_t byte;
   char *parameter_string;
   size_t string_length;
   parameter_list *parameter_list;
@@ -677,8 +738,12 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   if (!content_get_uint32 (content, &record_length)) return 0;
   printf ("  Record length is %i\n", record_length);
 
-  if (!content_get_byte (content, &byte)) return 0;
-  printf ("  BYTE %i", byte);
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (model layer)\n", layer);
+
+  /* 57: Mechanical 1  -  Board Outline (along with the Keep-Out Layer, but that can be used for other things also)
+   * 69: Mechanical 13 -  Top Layer Component Body Information (3D models and mechanical outlines) <paired with M14>
+   */
 
   if (!content_get_uint16 (content, &w1)) return 0;
   printf ("  WORD %i\n", w1);
@@ -869,6 +934,7 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   return 1;
 }
 
+#if 0
 static int
 decode_record_15 (FILE *file, file_content *content)
 {
@@ -888,6 +954,7 @@ decode_record_15 (FILE *file, file_content *content)
 
   return 1;
 }
+#endif
 
 static int
 decode_pin_record (FILE *file, file_content *content)
@@ -1176,7 +1243,7 @@ decode_pin_record (FILE *file, file_content *content)
 }
 
 void
-decode_data (FILE *file, file_content *content, int expected_sections, model_map *map)
+decode_pcblib_data (FILE *file, file_content *content, int expected_sections, model_map *map)
 {
   uint8_t byte;
   int section_no = 0;
@@ -1229,7 +1296,7 @@ decode_data (FILE *file, file_content *content, int expected_sections, model_map
         break;
 
       case 6:
-        if (!decode_record_6 (file, content))
+        if (!decode_rectangle_record (file, content))
           goto error;
         break;
 
@@ -1243,10 +1310,12 @@ decode_data (FILE *file, file_content *content, int expected_sections, model_map
           goto error;
         break;
 
+#if 0
       case 15: /* FromTo object? */
         if (!decode_record_15 (file, content))
           goto error;
         break;
+#endif
 
       //case 0: /* Track line segment? */
       case 8: /* Net object? */
