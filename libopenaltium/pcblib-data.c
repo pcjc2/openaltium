@@ -959,7 +959,7 @@ decode_record_15 (FILE *file, file_content *content)
 static int
 decode_pin_record (FILE *file, file_content *content)
 {
-  uint8_t b1, b2, b3;
+  uint8_t b1, b2, b3, b5, b6;
   uint8_t length_bytes;
   uint16_t w1;
   uint16_t flags;
@@ -971,9 +971,10 @@ decode_pin_record (FILE *file, file_content *content)
   uint32_t dw1, dw2, dw3, dw4, dw5;
   char *name;
   char *string;
+  uint8_t byte;
+  uint8_t layer;
   uint8_t to_layer = 0xFF;
   uint8_t from_layer = 0;
-  uint8_t b5, b6;
   bool pin_is_round;
   bool pin_is_hole;
   bool pin_is_smd;
@@ -1001,8 +1002,16 @@ decode_pin_record (FILE *file, file_content *content)
   printf ("  BYTES %i, %i\n", b1, length_bytes);
 
   if (!content_get_uint16 (content, &w1)) return 0;
-  if (!content_get_uint16 (content, &flags)) return 0;
-  printf ("  WORDS %i %i\n", w1, flags);
+  printf ("  WORD %i\n", w1);
+
+  if (!content_get_byte (content, &byte)) return 0;
+  printf ("  BYTE %i\n", byte);
+
+  if (!content_get_byte (content, &layer)) return 0;
+  printf ("  BYTE %i (layer)\n", layer); /* Layer 74 seems to mean MUTLILAYER */
+
+//  if (!content_get_uint16 (content, &flags)) return 0;
+//  printf ("  WORDS %i %i\n", w1, flags);
 
   if (!content_get_uint16 (content, &type_word)) return 0;
   printf ("  WORD %i\n", type_word);
@@ -1015,43 +1024,43 @@ decode_pin_record (FILE *file, file_content *content)
   print_coord (x); printf (", ");
   print_coord (y); printf (")\n");
 
-  if (!content_get_int32 (content, &c1)) return 0;
-  if (!content_get_int32 (content, &c2)) return 0;
-  if (!content_get_int32 (content, &c3)) return 0;
-  if (!content_get_int32 (content, &c4)) return 0;
-  if (!content_get_int32 (content, &c5)) return 0;
-  if (!content_get_int32 (content, &c6)) return 0;
-  if (!content_get_int32 (content, &c7)) return 0;
-  printf ("  c1: ");
-  print_coord (c1); printf (" c2: ");
-  print_coord (c2); printf (" c3: ");
-  print_coord (c3); printf (" c4: ");
-  print_coord (c4); printf (" c5: ");
-  print_coord (c5); printf (" c6: ");
-  print_coord (c6); printf (" c7: ");
-  print_coord (c7); printf ("\n");
+  if (!content_get_int32 (content, &c1)) return 0; /* $pos+44 in altium2kicad */
+  if (!content_get_int32 (content, &c2)) return 0; // 48
+  if (!content_get_int32 (content, &c3)) return 0; // 52
+  if (!content_get_int32 (content, &c4)) return 0; // 56
+  if (!content_get_int32 (content, &c5)) return 0; // 60
+  if (!content_get_int32 (content, &c6)) return 0; // 64
+  if (!content_get_int32 (content, &c7)) return 0; // 68
 
-  if (!content_get_byte (content, &style1)) return 0;
-  if (!content_get_byte (content, &style2)) return 0;
-  if (!content_get_byte (content, &style3)) return 0;
+  printf ("  c1: "); print_coord (c1);
+  printf (" c2: "); print_coord (c2);
+  printf (" c3: "); print_coord (c3);
+  printf (" c4: "); print_coord (c4);
+  printf (" c5: "); print_coord (c5);
+  printf (" c6: "); print_coord (c6);
+  printf (" c7: "); print_coord (c7); printf ("\n");
+
+  if (!content_get_byte (content, &style1)) return 0; // 72
+  if (!content_get_byte (content, &style2)) return 0; // 73
+  if (!content_get_byte (content, &style3)) return 0; // 74
   printf ("  BYTES %i %i %i (Pad shape styles?)\n", style1, style2, style3);
 
-  if (!content_get_double (content, &angle)) return 0;
+  if (!content_get_double (content, &angle)) return 0; // 75
   printf ("  Rotation angle %f\n", angle);
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  if (!content_get_uint32 (content, &dw3)) return 0;
+  if (!content_get_uint32 (content, &dw1)) return 0; // 83
+  if (!content_get_uint32 (content, &dw2)) return 0; // 87
+  if (!content_get_uint32 (content, &dw3)) return 0; // 91
   printf ("  DWORDS %i, %i, %i\n", dw1, dw2, dw3);
 
-  if (!content_get_uint16 (content, &w1)) return 0;
+  if (!content_get_uint16 (content, &w1)) return 0; // 95
   printf ("  WORD %i\n", w1);
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  if (!content_get_uint32 (content, &dw3)) return 0;
-  if (!content_get_uint32 (content, &dw4)) return 0;
-  if (!content_get_uint32 (content, &dw5)) return 0;
+  if (!content_get_uint32 (content, &dw1)) return 0; // 97
+  if (!content_get_uint32 (content, &dw2)) return 0; // 101
+  if (!content_get_uint32 (content, &dw3)) return 0; // 105
+  if (!content_get_uint32 (content, &dw4)) return 0; // 109
+  if (!content_get_uint32 (content, &dw5)) return 0; // 113
   printf ("  DWORDS %i, %i, %i, %i, %i\n", dw1, dw2, dw3, dw4, dw5);
   printf ("  (as coords: ");
   print_coord (dw1); printf (", ");
@@ -1060,11 +1069,13 @@ decode_pin_record (FILE *file, file_content *content)
   print_coord (dw4); printf (", ");
   print_coord (dw5); printf (")\n");
 
-  if (!content_get_uint32 (content, &dw1)) return 0;
-  if (!content_get_uint32 (content, &dw2)) return 0;
-  if (!content_get_uint32 (content, &dw3)) return 0;
-  if (!content_get_uint32 (content, &dw4)) return 0;
+  if (!content_get_uint32 (content, &dw1)) return 0; // 117
+  if (!content_get_uint32 (content, &dw2)) return 0; // 121
+  if (!content_get_uint32 (content, &dw3)) return 0; // 125
+  if (!content_get_uint32 (content, &dw4)) return 0; // 129    **** altium2kicad has double "HOLEROTATION" at offset $pos+129 ****
   printf ("  DWORDS %i, %i, %i, %i\n", dw1, dw2, dw3, dw4);
+
+  g_assert (dw4 == 0);
 
   if (length_bytes > 106) {
 
@@ -1165,8 +1176,8 @@ decode_pin_record (FILE *file, file_content *content)
   g_assert (style2 == style3);
 
   pin_is_smd = (to_layer == from_layer); /* GUESS? */
-
   pin_is_smd = (flags & 256) != 0;
+  pin_is_smd = (layer != 74); /* GUESS? */
 
   if (!pin_is_smd) { //(pin_is_round) {
     printf ("XXX: Assuming pin is round?\n");

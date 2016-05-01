@@ -45,7 +45,7 @@ content_get_##name (file_content *content, type *data) \
 CONTENT_GET_TYPE(uint32, uint32_t)
 CONTENT_GET_TYPE(int32, int32_t)
 CONTENT_GET_TYPE(uint16, uint16_t)
-//CONTENT_GET_TYPE(int16, int16_t)
+CONTENT_GET_TYPE(int16, int16_t)
 CONTENT_GET_TYPE(byte, uint8_t)
 CONTENT_GET_TYPE(double, double)
 

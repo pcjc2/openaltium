@@ -1,6 +1,6 @@
 /*
  *  openaltium is a set of tools for opening Altium (TM) library files
- *  Copyright (C) 2011  Peter Clifton <pcjc2@cam.ac.uk>
+ *  Copyright (C) 2016  Peter Clifton <pcjc2@cam.ac.uk>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -37,6 +37,7 @@
 #include "schlib-data.h"
 
 
+#if 0
 /* XXX: DUPLICATE FROM pcblib-data.c */
 static void
 fprint_coord (FILE *file, int32_t coord)
@@ -44,6 +45,7 @@ fprint_coord (FILE *file, int32_t coord)
 //  fprintf (file, "%.2fmm", (double)coord / 1000000. * 2.54);
   fprintf (file, "%.2fmil", (double)coord / 10000.);
 }
+#endif
 
 
 static int
@@ -75,91 +77,26 @@ input_to_content (GsfInput *input)
 }
 
 static void
-input_decompress_to_file (GsfInput *input, const char *file)
-{
-  GZlibDecompressor *decomp;
-  GFile *gfile;
-  GFileOutputStream *file_os;
-  GOutputStream *decomp_os;
-  guint8 const *data;
-  gsf_off_t length;
-  gsize bytes_written;
-  GError *error = NULL;
-
-  decomp = g_zlib_decompressor_new (G_ZLIB_COMPRESSOR_FORMAT_ZLIB);
-  gfile = g_file_new_for_path (file);
-  g_file_delete (gfile, NULL, NULL);
-  file_os = g_file_create (gfile, G_FILE_CREATE_NONE, NULL, &error);
-  if (!check_gerror (error)) exit (-1);
-  decomp_os = g_converter_output_stream_new (G_OUTPUT_STREAM (file_os), G_CONVERTER (decomp));
-
-  length = gsf_input_size (input);
-  data = gsf_input_read (input, length, NULL);
-  if (data == NULL) {
-    fprintf (stdout, "Read error grabbing data\n");
-    return;
-  }
-
-  g_output_stream_write_all (decomp_os, data, length, &bytes_written, NULL, NULL);
-  g_output_stream_close (decomp_os, NULL, NULL);
-  g_output_stream_close (G_OUTPUT_STREAM (file_os), NULL, NULL);
-
-  g_object_unref (decomp_os);
-  g_object_unref (file_os);
-  g_object_unref (gfile);
-  g_object_unref (decomp);
-}
-
-static void
 free_content (file_content *content)
 {
   g_free (content);
 }
 
-static uint32_t
-parse_header (GsfInfile *dir)
-{
-  GsfInput *header;
-  file_content *content;
-  uint32_t data;
-
-  header = gsf_infile_child_by_name (dir, "Header");
-  if (header == NULL) {
-    fprintf (stdout, "Error: Couldn't open 'Header' file\n");
-    exit (EXIT_FAILURE);
-  }
-
-  content = input_to_content (header);
-
-  if (!content_get_uint32 (content, &data)) {
-    fprintf (stdout, "Error reading size from header\n");
-    exit (EXIT_FAILURE);
-  }
-
-  free_content (content);
-  g_object_unref (header);
-  return data;
-}
-
 static void
-parse_footprint_resource (FILE *file, GsfInfile *root, const char *resource_name, model_map *map)
+parse_symbol_resource (FILE *file, GsfInfile *root, const char *sectionkey, int part)
 {
-  GsfInfile *footprint;
-  uint32_t record_count;
+  GsfInfile *symbol;
   GsfInput *data;
   file_content *content;
   char *outfile;
 
-  footprint = GSF_INFILE (gsf_infile_child_by_name (root, resource_name));
-  if (footprint == NULL) {
-    fprintf (stdout, "Error: Couldn't open footprint resource '%s' file\n", resource_name);
+  symbol = GSF_INFILE (gsf_infile_child_by_name (root, sectionkey));
+  if (symbol == NULL) {
+    fprintf (stdout, "Error: Couldn't open symbol resource '%s' file\n", sectionkey);
     return;
   }
 
-  record_count = parse_header (footprint);
-  printf ("Footprint data has %i record(s)\n", record_count);
-
-  data = gsf_infile_child_by_name (footprint, "Data");
+  data = gsf_infile_child_by_name (symbol, "Data");
   if (data == NULL) {
     fprintf (stdout, "Error: Couldn't open 'Data' file\n");
     return;
@@ -168,233 +105,201 @@ parse_footprint_resource (FILE *file, GsfInfile *root, const char *resource_name
   content = input_to_content (data);
 
   /* DEBUG */
-  outfile = g_strdup_printf ("%s.raw", resource_name);
-  g_file_set_contents (/*"Data.debug"*/outfile, content->data, content->length, NULL);
+  outfile = g_strdup_printf ("%s.raw", sectionkey);
+  g_file_set_contents (outfile, content->data, content->length, NULL);
   g_free (outfile);
 
-  decode_schlib_data (file, content, record_count, map);
+  decode_schlib_data (file, content, part);
   free_content (content);
   g_object_unref (data);
-  g_object_unref (footprint);
+  g_object_unref (symbol);
 }
 
-static model_map *
-parse_library_models (GsfInfile *library)
-{
-  model_map *map;
-  GsfInfile *models;
-  GsfInput *data;
-  GsfInput *step;
-  uint32_t record_count;
-  file_content *content;
-  char *step_resource_string;
-  int i;
-
-  models = GSF_INFILE (gsf_infile_child_by_name (library, "Models"));
-  if (models == NULL) {
-    fprintf (stdout, "Error: Couldn't open Models dir\n");
-    return NULL;
-  }
-
-  record_count = parse_header (models);
-
-  data = gsf_infile_child_by_name (models, "Data");
-  if (data == NULL) {
-    fprintf (stdout, "Error: Couldn't open Models/Data file\n");
-    return NULL;
-  }
-
-  content = input_to_content (data);
-
-  map = model_map_new ();
-
-  /* Write out the STEP files */
-  for (i = 0; i < record_count; i++) {
-    char *parameter_string;
-    parameter_list *parameter_list;
-#if 0
-    char *model_filename;
-    char *model_id;
-    double model_rotx, model_roty, model_rotz;
-    double model_dx, model_dy, model_dz;
-    bool model_embed;
-    unsigned int model_checksum;
-#endif
-    model_info *info;
-
-    /* XXX: Read each data record into a parameters list */
-    parameter_string = content_get_length_dword_prefixed_string (content);
-    if (parameter_string == NULL)
-      return map;
-
-    printf ("  Model %i parameter: %s\n", i, parameter_string);
-
-    parameter_list = parameter_list_new_from_string (parameter_string);
-    g_free (parameter_string);
-
-#if 0
-    model_id =       parameter_list_get_string (parameter_list, "MODELID");
-    model_rotx =     parameter_list_get_double (parameter_list, "ROTX");
-    model_roty =     parameter_list_get_double (parameter_list, "ROTY");
-    model_rotz =     parameter_list_get_double (parameter_list, "ROTZ");
-    model_dx =    parameter_list_get_dimension (parameter_list, "DX");
-    model_dy =    parameter_list_get_dimension (parameter_list, "DY");
-    model_dz =    parameter_list_get_dimension (parameter_list, "DZ");
-    model_checksum =    parameter_list_get_int (parameter_list, "CHECKSUM");
-    model_embed =      parameter_list_get_bool (parameter_list, "EMBED");
-    model_filename = parameter_list_get_string (parameter_list, "NAME");
-#endif
-
-    info = model_info_new_from_parameters (parameter_list);
-    parameter_list_free (parameter_list);
-
-    model_map_insert (map, info);
-
-    step_resource_string = g_strdup_printf ("%i", i);
-    step = gsf_infile_child_by_name (GSF_INFILE (models), step_resource_string);
-    if (step == NULL) {
-      fprintf (stdout, "Error: Couldn't open STEP model %s\n", step_resource_string);
-      g_free (step_resource_string);
-      continue;
-    }
-    g_free (step_resource_string);
-    input_decompress_to_file (step, info->filename);
-    g_object_unref (step);
-  }
-
-  g_object_unref (data);
-
-  return map;
-}
-
-/* Convert an Altium footprint name to the name of its resource in the file */
+/* Convert an Altium symbol name to the name of its resource in the file */
 static char *
-footprint_name_to_resource_name (const char *footprint_name)
+libref_to_resource_name (parameter_list *sectionkeys, const char *libref)
 {
+  int keycount;
+  int i;
+  char *fieldname;
+  char *value;
+  char *key = NULL;
+
+  if (sectionkeys != NULL) {
+
+    keycount = parameter_list_get_int (sectionkeys, "KEYCOUNT");
+
+    for (i = 0; i < keycount; i++) {
+      fieldname = g_strdup_printf ("LIBREF%i", i);
+      value = parameter_list_get_string (sectionkeys, fieldname);
+      g_free (fieldname);
+
+      if (strcmp (libref, value) == 0) { /* Found a match */
+        fieldname = g_strdup_printf ("SECTIONKEY%i", i);
+        key = parameter_list_get_string (sectionkeys, fieldname);
+        g_free (fieldname);
+        break;
+      }
+    }
+  }
+
+  if (key == NULL)
+    key = strdup (libref);
+
   /* Translitterate '/' to '_' */
-  return g_strdelimit (g_strdup (footprint_name), "/", '_');
+  return g_strdelimit (key, "/", '_');
 }
 
-static void
-parse_library_resource_data (GsfInfile *library, model_map *map)
+static parameter_list *
+parse_parameter_list (GsfInfile *root, const char *name)
 {
-  GsfInfile *root;
   GsfInput *data;
   file_content *content;
-  char *parameters;
-  uint32_t num_footprints;
-  int i;
-  char *outname;
-  FILE *outfile;
-  int32_t origin_x, origin_y;
+  char *parameter_string;
+  parameter_list *parameter_list;
 
-  root = gsf_input_container (GSF_INPUT (library));
-
-  data = gsf_infile_child_by_name (library, "Data");
+  data = gsf_infile_child_by_name (root, name);
   if (data == NULL) {
-    fprintf (stdout, "Error: Couldn't open Library/Data file\n");
-    return;
+    fprintf (stdout, "Error: Couldn't open %s file\n", name);
+    return NULL;
   }
 
   content = input_to_content (data);
 
-  parameters = content_get_length_dword_prefixed_string (content);
-  if (parameters == NULL) {
-    fprintf (stdout, "Error getting parameters\n");
-    exit (EXIT_FAILURE);
-  }
-  printf ("Parameters: '%s'\n", parameters);
-
-  if (!content_get_uint32 (content, &num_footprints)) {
-    fprintf (stdout, "Error getting num_footprints\n");
+  parameter_string = content_get_length_dword_prefixed_string (content);
+  if (parameter_string == NULL) {
+    fprintf (stdout, "Error reading %s\n", name);
     exit (EXIT_FAILURE);
   }
 
-  for (i = 0; i < num_footprints; i++) {
-    char *footprint_name;
-    char *resource_name;
-
-    footprint_name = content_get_length_multi_prefixed_string (content);
-    if (footprint_name == NULL) {
-      fprintf (stdout, "Error getting footprint name\n");
-      exit (EXIT_FAILURE);
-    }
-    printf ("Footprint %i: '%s'\n", i + 1, footprint_name);
-    resource_name = footprint_name_to_resource_name (footprint_name);
-    origin_x = 0;
-    origin_y = 0;
-
-    outname = g_strdup_printf ("%s.fp", resource_name);
-    outfile = fopen (outname, "w");
-    if (outfile == NULL) {
-      fprintf (stdout, "Error opening output file %s\n", outname);
-      exit (EXIT_FAILURE);
-    }
-    g_free (outname);
-
-    fprintf (outfile, "Element[\"\" \"\" \"\" \"\" ");
-    fprint_coord (outfile, origin_x); fprintf (outfile, " ");
-    fprint_coord (outfile, origin_y); fprintf (outfile, " ");
-    fprintf (outfile, "0.0 0.0 0 100 \"\"]\n");
-    fprintf (outfile, "(\n");
-    parse_footprint_resource (outfile, root, resource_name, map);
-    fprintf (outfile, ")\n");
-    fclose (outfile);
-    g_free (footprint_name);
-    g_free (resource_name);
-  }
+  parameter_list = parameter_list_new_from_string (parameter_string);
+  g_free (parameter_string);
 
   free_content (content);
   g_object_unref (data);
+
+  return parameter_list;
+}
+
+static parameter_list *
+parse_sectionkeys (GsfInfile *root)
+{
+  GsfInput *data;
+  char *name = "SectionKeys";
+
+  data = gsf_infile_child_by_name (root, name);
+  if (data == NULL) {
+    printf ("No SectionKeys file!\n");
+    return NULL;
+  }
+
+  g_object_unref (data);
+
+  return parse_parameter_list (root, name);
 }
 
 /* Spit out the data from the 'Library' resource */
 static void
-parse_library_resource (GsfInfile *root)
+parse_fileheader (GsfInfile *root)
 {
-  GsfInfile *library;
+//  GsfInput *data;
+//  file_content *content;
+//  char *parameter_string;
+  parameter_list *fileheader_parameter_list;
+  parameter_list *sectionkeys_parameter_list;
+  int compcount;
+  int i_comp;
+  int i_part;
 
-  uint32_t record_count;
-  model_map *map;
+  fileheader_parameter_list = parse_parameter_list (root, "FileHeader");
 
-  library = GSF_INFILE (gsf_infile_child_by_name (root, "Library"));
-  if (library == NULL) {
-    fprintf (stdout, "Error: Couldn't open Library dir\n");
+#if 0
+  data = gsf_infile_child_by_name (root, "FileHeader");
+  if (data == NULL) {
+    fprintf (stdout, "Error: Couldn't open FileHeader file\n");
     return;
   }
 
-  record_count = parse_header (library);
-  g_return_if_fail (record_count == 1);
+  content = input_to_content (data);
 
-  map = parse_library_models (library);
-
-  parse_library_resource_data (library, map);
-
-  model_map_free (map);
-}
-
-static void
-parse_root (GsfInfile *root)
-{
-  int children;
-  int i;
-//  char *name;
-
-  children = gsf_infile_num_children (root);
-  for (i = 0; i < children; i++) {
-    GsfInput *input = gsf_infile_child_by_index (root, i);
-//    char const *name = gsf_input_name (input);
-    GsfInfile *child = GSF_IS_INFILE (input) ? GSF_INFILE (input) : NULL;
-    gboolean is_dir = (child != NULL) &&
-                      gsf_infile_num_children (child) > 0;
-    if (is_dir) {
-//      printf ("Decending into dir '%s'\n", name);
-      parse_root (child);
-//      printf ("Done with dir '%s'\n", name);
-//    } else {
-//      printf ("Child file '%s'\n", name);
-    }
+  parameter_string = content_get_length_dword_prefixed_string (content);
+  if (parameter_string == NULL) {
+    fprintf (stdout, "Error reading FleHeader\n");
+    exit (EXIT_FAILURE);
   }
+
+  fileheader_parameter_list = parameter_list_new_from_string (parameter_string);
+  g_free (parameter_string);
+
+  free_content (content);
+  g_object_unref (data);
+#endif
+
+  sectionkeys_parameter_list = parse_sectionkeys (root);
+
+  compcount = parameter_list_get_int (fileheader_parameter_list, "COMPCOUNT");
+
+  /* Iterate over components */
+  for (i_comp = 0; i_comp < compcount; i_comp++) {
+
+    char *fieldname;
+    char *libref;
+    char *description;
+    char *resource_name;
+    int partcount;
+
+    fieldname = g_strdup_printf ("LIBREF%i", i_comp);
+    libref = parameter_list_get_string (fileheader_parameter_list, fieldname);
+    g_free (fieldname);
+
+    fieldname = g_strdup_printf ("%%UTF8%%COMPDESCR%i", i_comp);
+    description = parameter_list_get_string (fileheader_parameter_list, fieldname);
+    g_free (fieldname);
+
+    fieldname = g_strdup_printf ("PARTCOUNT%i", i_comp);
+    partcount = parameter_list_get_int (fileheader_parameter_list, fieldname);
+    partcount --; /* For some reasnon, partcount appears to always be +1 from the number of actual symbol parts */
+    g_free (fieldname);
+
+    resource_name = libref_to_resource_name (sectionkeys_parameter_list, libref);
+
+    if (resource_name == NULL) {
+      fprintf (stderr, "CANNOT FIND RESOURCE NAME FOR LIBREF '%s'\n", libref);
+      g_free (libref);
+      continue;
+    }
+
+    printf ("Symbol libref '%s', Decription '%s', Partcount %i, resource name '%s'\n",
+            libref, description, partcount, resource_name);
+
+    for (i_part = 1; i_part <= partcount; i_part++) {
+      char *resource_name_no_spaces;
+      char *outname;
+      FILE *outfile;
+      resource_name_no_spaces = g_strdelimit (g_strdup (resource_name), " ", '_');
+      outname = g_strdup_printf ("%s-%i.sym", resource_name_no_spaces, i_part);
+      outfile = fopen (outname, "w");
+      if (outfile == NULL) {
+        fprintf (stdout, "Error opening output file %s\n", outname);
+        exit (EXIT_FAILURE);
+      }
+      g_free (outname);
+
+      fprintf (outfile, "v 20121203 2\n");
+      parse_symbol_resource (outfile, root, resource_name, i_part);
+      fclose (outfile);
+
+    }
+    g_free (resource_name);
+    g_free (libref);
+  }
+
+  parameter_list_free (sectionkeys_parameter_list);
+  parameter_list_free (fileheader_parameter_list);
+
+
+//  free_content (content);
+//  g_object_unref (data);
 }
 
 void
@@ -413,8 +318,7 @@ parse_schlib_file (char *filename)
   g_object_unref (input);
   if (!check_gerror (error)) return;
 
-  parse_root (root);
-  parse_library_resource (root);
+  parse_fileheader (root);
 
   g_object_unref (root);
 }

@@ -47,7 +47,14 @@ parameter_list_new_from_string (const char *string)
     nv = g_strsplit (*parameter, "=", 2);
     if (nv[0] != NULL &&
         nv[1] != NULL)
-      g_variant_dict_insert (&list->dict, nv[0], "s", nv[1]);
+      if (g_utf8_validate (nv[1], -1, NULL)) {
+//        printf ("%s=%s\n", nv[0], nv[1]);
+        g_variant_dict_insert (&list->dict, nv[0], "s", nv[1]);
+      } else {
+//        printf ("Non UTF8 encoding found in parameter %s\n", nv[0]);
+        g_variant_dict_insert (&list->dict, nv[0], "s", "BAD ENCODING");
+        /* XXX: Should we include this as a byte array in the dictionary? */
+      }
 //    printf ("LISTING PARAMETER %s (Name='%s', Value='%s')\n", *parameter, nv[0], nv[1]);
     g_strfreev (nv);
   }
@@ -132,7 +139,10 @@ parameter_list_get_bool (const parameter_list *list, const char *name)
   if (!g_variant_dict_lookup ((/* not const */GVariantDict *)&list->dict, name, "s", &string))
     return value;
 
-  if (strcmp (string, "TRUE") == 0)
+//  if (strcmp (string, "TRUE") == 0)
+//    value = true;
+
+  if (string[0] == 'T')
     value = true;
 
   return value;

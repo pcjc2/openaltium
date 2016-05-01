@@ -18,4 +18,4 @@
  */
 
 
-void decode_schlib_data (FILE *file, file_content *content, int expected_sections, model_map *map);
+void decode_schlib_data (FILE *file, file_content *content, int part);
