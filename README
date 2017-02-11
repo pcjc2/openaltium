@@ -1,0 +1,8 @@
+Bootstrap auto-tools with:
+
+autoreconf -i
+
+Then:
+
+./configure
+make
