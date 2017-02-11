@@ -142,7 +142,7 @@ parameter_list_get_bool (const parameter_list *list, const char *name)
 //  if (strcmp (string, "TRUE") == 0)
 //    value = true;
 
-  if (string[0] == 'T')
+  if (string[0] == 'T' || string[0] == '1')
     value = true;
 
   return value;
