@@ -711,6 +711,20 @@ decode_polygon_record (FILE *file, file_content *content)
   return 1;
 }
 
+/* NB: Angle is in degrees, and it appears this matrix is for backward rotation! */
+static void
+rotate_vector_backwards_degrees (double *x, double *y, double angle)
+{
+  double ix = *x;
+  double iy = *y;
+  double s = sin (angle * M_PI / 180.);
+  double c = cos (angle * M_PI / 180.);
+
+  *x = ix *  c + iy * s;
+  *y = ix * -s + iy * c;
+}
+
+
 static int
 decode_model_record (FILE *file, file_content *content, model_map *map)
 {
@@ -731,7 +745,7 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   double ox, oy, oz;
   double ax, ay, az;
   double rx, ry, rz;
-  double tx, ty, tz;
+  bool body_projection;
 
   printf ("model\n");
 
@@ -831,9 +845,10 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
   ax = ay = 0.0; az = 1.0;
   rx = 1.0; ry = rz = 0.0;
 
-  ox = -info->dx / 10000.;
-  oy = -info->dy / 10000.;
-  oz = -info->dz / 10000.;
+  /* NB: Ignore these read from the model store, instead apply those from the model record where we also have X & Y offsets */
+//  ox = -info->dx / 10000.; /* NB: X doesn't exist in the model store */
+//  oy = -info->dy / 10000.; /* NB: Y doesn't exist in the model store */
+//  oz = -info->dz / 10000.;
 
   printf ("Initial transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
 
@@ -852,62 +867,65 @@ decode_model_record (FILE *file, file_content *content, model_map *map)
     }
   }
 
-#if 0
-  tx = ox;
-  ty = (oy *  cos (info->rotx * M_PI / 180.) + oz * sin (info->rotx * M_PI / 180.));
-  tz = (oy * -sin (info->rotx * M_PI / 180.) + oz * cos (info->rotx * M_PI / 180.));
-
-  ox = tx;
-  oy = ty;
-  oz = tz;
-#endif
-
 /* XXX: These transforms may be backwards, e.g. implicitly negating the angles */
 /* XXX: These transforms may be in the wrong order (translate, x, y, z)... no
  *      examples with multiple rotated axis were found to check ordering.. it
  *      might be ZYX, for example. Checks so far suggest that this is correct.
  */
+  rotate_vector_backwards_degrees (&ay, &az, info->rotx);
+  rotate_vector_backwards_degrees (&ry, &rz, info->rotx);
 
-#if 1
-  ty = (ay *  cos (info->rotx * M_PI / 180.) + az * sin (info->rotx * M_PI / 180.));
-  tz = (ay * -sin (info->rotx * M_PI / 180.) + az * cos (info->rotx * M_PI / 180.));
-  ay = ty;
-  az = tz;
+  rotate_vector_backwards_degrees (&az, &ax, info->roty);
+  rotate_vector_backwards_degrees (&rz, &rx, info->roty);
 
-  ty = (ry *  cos (info->rotx * M_PI / 180.) + rz * sin (info->rotx * M_PI / 180.));
-  tz = (ry * -sin (info->rotx * M_PI / 180.) + rz * cos (info->rotx * M_PI / 180.));
-  ry = ty;
-  rz = tz;
-#endif
 
-#if 1
-  tz = (az *  cos (info->roty * M_PI / 180.) + ax * sin (info->roty * M_PI / 180.));
-  tx = (az * -sin (info->roty * M_PI / 180.) + ax * cos (info->roty * M_PI / 180.));
-  az = tz;
-  ax = tx;
+  rotate_vector_backwards_degrees (&ax, &ay, info->rotz);
+  rotate_vector_backwards_degrees (&rx, &ry, info->rotz);
 
-  tz = (rz *  cos (info->roty * M_PI / 180.) + rx * sin (info->roty * M_PI / 180.));
-  tx = (rz * -sin (info->roty * M_PI / 180.) + rx * cos (info->roty * M_PI / 180.));
-  rz = tz;
-  rx = tx;
-#endif
-
-#if 1
-  tx = (ax *  cos (info->rotz * M_PI / 180.) + ay * sin (info->rotz * M_PI / 180.));
-  ty = (ax * -sin (info->rotz * M_PI / 180.) + ay * cos (info->rotz * M_PI / 180.));
-  ax = tx;
-  ay = ty;
-
-  tx = (rx *  cos (info->rotz * M_PI / 180.) + ry * sin (info->rotz * M_PI / 180.));
-  ty = (rx * -sin (info->rotz * M_PI / 180.) + ry * cos (info->rotz * M_PI / 180.));
-  rx = tx;
-  ry = ty;
-#endif
   printf ("Rotated transform: O(%f,%f,%f) A(%f,%f,%f) R(%f,%f,%f)\n", ox, oy, oz, ax, ay, az, rx, ry, rz);
 
-  ox -= parameter_list_get_double (parameter_list, "MODEL.2D.X");
-  oy -= parameter_list_get_double (parameter_list, "MODEL.2D.Y");
-//  oz -= parameter_list_get_double (parameter_list, "MODEL.2D.Z");
+  ox += parameter_list_get_double (parameter_list, "MODEL.2D.X");  /* Why X positive? */
+  oy -= parameter_list_get_double (parameter_list, "MODEL.2D.Y");  /* Why Y negative? */
+  oz -= parameter_list_get_double (parameter_list, "MODEL.3D.DZ");  /* Why Z negative? */
+
+  az = -az; /* Why flipping az? */
+  rz = -rz; /* Why flipping rz? */
+
+  /* NB: Naming of this field is unclear, but appears to invoke a flip of the component to the
+   *     opposite board side, rotating 180 degrees about the x-axis of the pre-rotated model
+   */
+  body_projection = parameter_list_get_bool (parameter_list, "BODYPROJECTION");
+  if (body_projection) {
+    oy = -oy;
+    oz = -oz;
+    ay = -ay;
+    az = -az;
+    ry = -ry;
+    rz = -rz;
+    /* Hack - offset by what (might be) Altium default thickness, since the Wurth library
+     *        places components on the wrong side of the board at times.. then offsets through
+     *        the PCB to the opposite layer. Grr.
+     */
+//    oz += 0.3L / 0.0254L; /* Assuming Altium default thickness of 0.3mm */
+
+    /* Assuming Altium default thickness of:
+     *   0.01016mm Soldermask (DISCOUNTED)
+     *   0.03556mm copper
+     *   0.32004mm core
+     *   0.03556mm copper
+     *   0.01016mm Soldermask (DISCOUNTED)
+     */
+    //oz += 0.39116L / 0.0254L;
+
+    /* Assuming Altium default thickness of:
+     *   0.01016mm Soldermask
+     *   0.03556mm copper
+     *   0.32004mm core
+     *   0.03556mm copper
+     *   0.01016mm Soldermask
+     */
+    oz += 0.41148L / 0.0254L;
+  }
 
   /* XXX: 2D rotation??? */
 
